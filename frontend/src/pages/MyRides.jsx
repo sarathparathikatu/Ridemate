@@ -1,0 +1,190 @@
+import { useCallback, useEffect, useState } from "react";
+import { api } from "../api.js";
+import Contact from "../components/Contact.jsx";
+import { VEHICLE_LABEL, formatTime, plural, splitFare } from "../format.js";
+
+const isActive = (trip) => trip.status === "open" || trip.status === "full";
+
+function StatusPill({ status }) {
+  return <span className={`pill ${status}`}>{status}</span>;
+}
+
+function HostedTrip({ trip, version, onChange }) {
+  const [requests, setRequests] = useState([]);
+  const [error, setError] = useState("");
+  const active = isActive(trip);
+
+  const loadRequests = useCallback(
+    () => api.tripRequests(trip.id).then(setRequests).catch((err) => setError(err.message)),
+    [trip.id],
+  );
+  // `version` changes on every Refresh: React keeps this card mounted (same key), so
+  // without it the card would never re-fetch and new requests would stay invisible.
+  useEffect(() => {
+    if (active) loadRequests();
+  }, [active, loadRequests, version]);
+
+  async function act(action) {
+    setError("");
+    try {
+      await action();
+      await loadRequests();
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  const pending = requests.filter((r) => r.status === "pending");
+  const accepted = requests.filter((r) => r.status === "accepted");
+
+  return (
+    <article className="card trip">
+      <div className="trip-head">
+        <strong>{formatTime(trip.depart_at)}</strong>
+        <StatusPill status={trip.status} />
+      </div>
+      <p className="route">
+        {trip.from_place.name} → {trip.to_place.name}
+      </p>
+      <p className="muted">
+        {trip.seats_taken}/{trip.seats_total} seats taken · {VEHICLE_LABEL[trip.vehicle]}
+      </p>
+
+      {accepted.length > 0 && (
+        <div className="people">
+          <h3>Riding with you</h3>
+          {accepted.map((r) => (
+            <Contact key={r.id} person={r.requester_contact} extra={plural(r.seats, "seat")} />
+          ))}
+        </div>
+      )}
+
+      {active && pending.length > 0 && (
+        <div className="people">
+          <h3>Waiting for your answer</h3>
+          {pending.map((r) => (
+            <div key={r.id} className="request-row">
+              <span>
+                {r.requester.display_name} · {plural(r.seats, "seat")}
+              </span>
+              <span className="actions">
+                <button className="primary small" onClick={() => act(() => api.acceptRequest(r.id))}>
+                  Accept
+                </button>
+                <button className="small" onClick={() => act(() => api.declineRequest(r.id))}>
+                  Decline
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {active && requests.length === 0 && <p className="muted">No requests yet.</p>}
+      {error && <p className="error">{error}</p>}
+      {active && (
+        <button
+          className="danger small"
+          onClick={() => window.confirm("Cancel this ride?") && act(() => api.cancelTrip(trip.id))}
+        >
+          Cancel ride
+        </button>
+      )}
+    </article>
+  );
+}
+
+function JoinedTrip({ req, onChange }) {
+  const { trip } = req;
+  const [error, setError] = useState("");
+  const canCancel = ["pending", "accepted"].includes(req.status) && isActive(trip);
+  const share = splitFare(trip, 0);
+
+  async function cancel() {
+    if (!window.confirm("Cancel your request?")) return;
+    try {
+      await api.cancelRequest(req.id);
+      onChange();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <article className="card trip">
+      <div className="trip-head">
+        <strong>{formatTime(trip.depart_at)}</strong>
+        <StatusPill status={trip.status === "cancelled" ? "cancelled" : req.status} />
+      </div>
+      <p className="route">
+        {trip.from_place.name} → {trip.to_place.name}
+      </p>
+      <p className="muted">
+        Host: {trip.host.display_name} · {VEHICLE_LABEL[trip.vehicle]}
+      </p>
+      {trip.status === "cancelled" && <p className="error">The host cancelled this ride.</p>}
+      {req.status === "pending" && isActive(trip) && (
+        <p className="muted">Waiting for {trip.host.display_name} to accept.</p>
+      )}
+      {req.host_contact && (
+        <div className="people">
+          <h3>Your host</h3>
+          <Contact person={req.host_contact} />
+          {share && req.status === "accepted" && <p className="fare">Your share: about ₹{share}</p>}
+        </div>
+      )}
+      {error && <p className="error">{error}</p>}
+      {canCancel && (
+        <button className="danger small" onClick={cancel}>
+          Cancel request
+        </button>
+      )}
+    </article>
+  );
+}
+
+export default function MyRides() {
+  const [hosted, setHosted] = useState(null);
+  const [joined, setJoined] = useState(null);
+  const [version, setVersion] = useState(0);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const [trips, requests] = await Promise.all([api.myTrips(), api.myRequests()]);
+      setHosted(trips);
+      setJoined(requests);
+      setVersion((v) => v + 1);
+      setError("");
+    } catch (err) {
+      setError(err.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (error) return <p className="error card">{error}</p>;
+  if (!hosted || !joined) return <p className="muted center">Loading…</p>;
+
+  return (
+    <>
+      <div className="section-head">
+        <h2>Rides I'm hosting</h2>
+        <button className="small" onClick={load}>Refresh</button>
+      </div>
+      {hosted.length === 0 && <p className="muted card">You haven't offered any rides yet.</p>}
+      {hosted.map((trip) => (
+        <HostedTrip key={trip.id} trip={trip} version={version} onChange={load} />
+      ))}
+
+      <h2>Rides I asked to join</h2>
+      {joined.length === 0 && <p className="muted card">No requests yet. Find a ride to join one.</p>}
+      {joined.map((req) => (
+        <JoinedTrip key={req.id} req={req} onChange={load} />
+      ))}
+    </>
+  );
+}

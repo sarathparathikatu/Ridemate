@@ -1,0 +1,29 @@
+[project]
+name = "ridemate-backend"
+version = "0.1.0"
+description = "RideMate API: find co-travellers from the station and share one ride"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "aiomysql>=0.2.0",
+    "pymysql>=1.1",
+    "cryptography>=42",
+    "pydantic-settings>=2.4",
+    "alembic>=1.20.1",
+    "bcrypt>=5.0.0",
+    "pyjwt>=2.15.1",
+    "email-validator>=2.3.0",
+    "python-multipart>=0.0.33",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
