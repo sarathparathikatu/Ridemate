@@ -4,21 +4,43 @@ Share one auto or cab with people from your train who are going the same way.
 
 Every Monday morning a full train reaches Kazhakoottam station, everyone opens Uber at once,
 and cabs run out. RideMate lets you post "arriving at the station ~6:15, going to Kulathoor,
-2 seats free", lets others from the same train find you and request to join, and shows the
-split fare. Contact details are shared only after the host accepts.
+2 seats free". Others from the same train find you (even if they're getting off on the way),
+request to join, and split the fare. Contact details are shared only after the host accepts.
+
+See the [concept screens (PDF)](docs/RideMate-concept.pdf) for where the design is heading.
+
+## Features
+
+- **Rides**: post a ride, search by pickup, destination and time, with **"on the way"**
+  matches computed in MySQL with `ST_Distance_Sphere`; map view (Leaflet + OpenStreetMap).
+- **Join requests**: request, accept, decline, cancel; row locking guarantees the last seat
+  can't be given twice.
+- **Live updates**: WebSockets (Redis pub/sub across server processes), toasts and
+  background-tab notifications.
+- **Accounts**: bcrypt passwords, short JWT access tokens, rotating refresh tokens with
+  reuse detection.
+- **Trust & safety**: phone verification by OTP, ratings after a completed ride, report and
+  block, share-with-family links, contacts hidden until a request is accepted.
+- **Scale**: keyset pagination, a composite search index (EXPLAIN demo: ~500x faster),
+  Redis cache with versioned invalidation, per-user and per-IP rate limits.
+- **Installable app**: PWA manifest and service worker, mobile-first UI.
+- **AI**: an MCP server so Claude Desktop can find, post and join rides for you.
 
 ## Stack
 
 | Layer | Tech |
 |---|---|
-| Frontend | React 19 + Vite, React Router, mobile-first CSS |
-| Backend | FastAPI (async), Pydantic, JWT auth (PyJWT), bcrypt |
-| Database | MySQL 8 (InnoDB, utf8mb4) via SQLAlchemy 2 async (aiomysql), Alembic migrations |
-| Tooling | uv (Python), npm (JS), pytest + httpx |
+| Frontend | React 19 + Vite, React Router, Leaflet, PWA |
+| Backend | FastAPI (async), Pydantic, PyJWT, bcrypt, WebSockets |
+| Data | MySQL 8 (InnoDB, utf8mb4) via SQLAlchemy 2 async + Alembic; Redis (optional locally) |
+| AI | MCP Python SDK 2.x (stdio server) |
+| Tooling | uv, npm, pytest + httpx, Docker, GitHub Actions |
 
-## Run it locally
+## Run it locally (development)
 
 Prerequisites: Python 3.12+, [uv](https://docs.astral.sh/uv/), MySQL 8, Node.js LTS.
+Redis is optional locally: without `REDIS_URL` the cache, rate limits and live events live
+in the server's memory.
 
 **1. Database** (once, as MySQL root):
 ```
@@ -43,41 +65,62 @@ npm run dev
 ```
 App: http://localhost:5173
 
-**Tests** (backend, against the local MySQL):
+Phone verification in development: no SMS is sent; the code is printed in the backend
+terminal and shown on the Profile page (`OTP_DEV_ECHO=true`).
+
+## Run the whole stack with Docker
+
+```
+cp .env.example .env    # set the secrets
+docker compose up --build
+```
+App: http://localhost:8080. Details and going live: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+## Tests
+
 ```
 cd backend
 uv run pytest -v
 ```
+22 integration tests against the real MySQL, including concurrent accepts for the last
+seat, refresh-token theft detection, live WebSocket events (in-process and via Redis), rate
+limits, "on the way" matching, OTP and blocking. CI runs them on every push with real MySQL
+and Redis, plus a migration drift check and a full rollback.
+
+Index demo: `uv run python -m scripts.explain_search` (backend folder).
 
 ## Project structure
 
 ```
 backend/
   app/
-    core/          config (env vars), security (bcrypt, JWT)
+    core/          settings, security (bcrypt, JWT), Redis client, key-value store
     db/            declarative Base, async engine + session
-    models/        SQLAlchemy models: User, Place, Trip, JoinRequest
-    schemas/       Pydantic request/response models (public vs private views)
-    services/      business rules (trips, join requests, users); no HTTP here
-    routers/       thin FastAPI endpoints
-    dependencies/  get_current_user (JWT check), DB session
+    models/        User, Place, Trip, JoinRequest, RefreshToken, Rating, Report, Block, TripShare
+    schemas/       Pydantic request/response models (public vs private views, pagination)
+    services/      business rules: trips, requests, tokens, phone, ratings, safety, sharing
+    routers/       thin FastAPI endpoints (+ /ws WebSocket)
+    realtime/      WebSocket connections and the event broker
+    dependencies/  current user, verified user, DB session, rate limits
   migrations/      Alembic versions (schema + seed data)
-  tests/           integration tests, incl. a concurrency test for the last seat
+  tests/           integration tests
+  scripts/         learning demos (ORM, JWT, EXPLAIN)
 frontend/
-  src/api.js       every HTTP call (attaches the JWT)
-  src/auth.jsx     login state (React context)
-  src/pages/       Find a ride, Offer a ride, My rides, Login, Register
+  src/api.js       every HTTP call (tokens, silent refresh, pagination)
+  src/live.jsx     WebSocket connection, toasts, notifications
+  src/pages/       Find a ride, Offer a ride, My rides, Profile, Share, Login, Register
+  public/          PWA manifest, service worker, icons
+mcp-server/        MCP server for Claude Desktop (see its README)
+docs/              LEARNING-GUIDE.md, DEPLOYMENT.md, concept screens
 ```
 
 ## Design notes
 
-- **Identity comes only from the token.** A trip's host is always the authenticated user,
-  never a `host_id` in the request body.
-- **Privacy by default.** Search results show a display name only; phone and email are
-  returned only to the host and accepted riders.
-- **No overbooking.** Accepting a request locks the trip row (`SELECT ... FOR UPDATE`), so two
-  simultaneous accepts for the last seat cannot both succeed. `tests/test_rides.py` proves it.
-- **UTC in the database.** The API accepts and returns timezone-aware timestamps; the browser
-  shows local time.
-- **No ID documents, no payments.** Only name, email and an optional phone are stored; the app
+- **Identity comes only from the token**: a ride's host is always the authenticated user.
+- **Privacy by default**: search shows a name, badge and rating; phone and email only reach
+  people inside an accepted ride; share links never show contacts.
+- **No ID documents, no payments**: name, email and an optional verified phone; the app
   shows the fare split and riders pay the driver directly.
+- **UTC in the database**: the API accepts and returns timezone-aware timestamps.
+
+Everything is explained concept by concept in [docs/LEARNING-GUIDE.md](docs/LEARNING-GUIDE.md).

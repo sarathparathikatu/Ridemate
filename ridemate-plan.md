@@ -52,7 +52,22 @@ Core flow:
    safe seat booking with `SELECT ... FOR UPDATE` (race test proves no overbooking)
 8. ✅ React (Vite) mobile-first UI: register, login, find, offer, my rides; browser E2E verified
 
-Next up: refresh tokens (stay logged in), then Layer 2.
+## Status: all phases built
+
+| Phase | Status | Commit message starts with |
+|---|---|---|
+| A: refresh tokens, live notifications, PWA | ✅ built, browser-tested | "Phase A" |
+| B: pagination, search index + EXPLAIN, Redis cache, rate limits (Layer 2) | ✅ built, tested | "Phase B" |
+| C: map, "on the way" matching | ✅ built, browser-tested | "Phase C" |
+| D: phone OTP, ratings, report/block, share with family | ✅ built, browser-tested | "Phase D" |
+| E: Docker, CI, deployment guide | ✅ written; runs on first push / with Docker | "Phase E" |
+| F: MCP server for Claude Desktop (Layer 3) | ✅ built, tested over stdio | "Phase F" |
+
+Still to do: verify the Docker / same-origin `/api` setup on a machine with Docker, deploy,
+fix the approximate place coordinates, add a real SMS provider, an admin screen for reports,
+and Web Push for notifications while the app is closed. Study material: docs/LEARNING-GUIDE.md.
+
+The original Layer 2 and Layer 3 notes below are kept for reference.
 
 ### Layer 2: Scale
 - Pagination on match search
