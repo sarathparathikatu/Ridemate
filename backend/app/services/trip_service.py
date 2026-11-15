@@ -1,15 +1,23 @@
 from datetime import datetime, timedelta
 
-from sqlalchemy import select, tuple_, update
+from sqlalchemy import and_, func, or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import aliased, joinedload
 
 from app.core import kv
 from app.models import JoinRequest, Place, RequestStatus, Trip, TripStatus, User
 from app.realtime import broker
 from app.schemas.common import utc_now
 from app.schemas.pagination import DEFAULT_LIMIT, Page, decode_cursor, make_page
-from app.schemas.trip import RiderOut, TripCreate, TripDetail, TripOut, TripUpdate, check_seats
+from app.schemas.trip import (
+    RiderOut,
+    SearchResult,
+    TripCreate,
+    TripDetail,
+    TripOut,
+    TripUpdate,
+    check_seats,
+)
 from app.schemas.user import ContactOut
 from app.services.errors import ConflictError, DomainError, ForbiddenError, NotFoundError
 
@@ -20,6 +28,9 @@ WITH_DETAILS = (joinedload(Trip.host), joinedload(Trip.from_place), joinedload(T
 ACTIVE = (TripStatus.OPEN, TripStatus.FULL)
 
 SEARCH_CACHE_SECONDS = 30
+# How much extra distance a host is assumed to accept to drop a rider on the way.
+# Straight-line metres: a rough stand-in for road distance, good enough for nearby stops.
+MAX_DETOUR_METERS = 1500
 
 
 async def invalidate_search(from_place_id: int) -> None:
@@ -100,6 +111,11 @@ async def list_my_trips(
     return make_page(trips, limit, lambda t: (t.depart_at, t.id), TripOut.model_validate)
 
 
+def _distance(a: Place, b_lng, b_lat):
+    """Great-circle distance in metres, computed by MySQL. POINT takes (longitude, latitude)."""
+    return func.ST_Distance_Sphere(func.POINT(a.lng, a.lat), func.POINT(b_lng, b_lat))
+
+
 async def _search_page(
     db: AsyncSession,
     from_place_id: int,
@@ -108,26 +124,55 @@ async def _search_page(
     window_minutes: int,
     cursor: str | None,
     limit: int,
-) -> Page[TripOut]:
+) -> Page[SearchResult]:
     """The database part of search. Nothing user-specific here, so the result is cacheable."""
+    rider_stop = await db.get(Place, to_place_id)
+    if rider_stop is None:
+        raise NotFoundError("Place not found")
+
+    start, end = aliased(Place), aliased(Place)  # the trip's own pickup and destination
+    start_to_rider = _distance(start, rider_stop.lng, rider_stop.lat)
+    rider_to_end = func.ST_Distance_Sphere(
+        func.POINT(rider_stop.lng, rider_stop.lat), func.POINT(end.lng, end.lat)
+    )
+    whole_trip = _distance(start, end.lng, end.lat)
+    detour = start_to_rider + rider_to_end - whole_trip  # extra metres to drop the rider
+
     window = timedelta(minutes=window_minutes)
     earliest = max(at - window, utc_now() - timedelta(minutes=10))  # never show departed rides
     stmt = (
-        select(Trip)
+        select(Trip, detour.label("detour_m"))
+        .join(start, Trip.from_place_id == start.id)
+        .join(end, Trip.to_place_id == end.id)
         .options(*WITH_DETAILS)
         .where(
+            # These three use ix_trips_search; the distance maths only runs on what's left.
             Trip.from_place_id == from_place_id,
-            Trip.to_place_id == to_place_id,
             Trip.status == TripStatus.OPEN,
             Trip.depart_at.between(earliest, at + window),
+            or_(
+                Trip.to_place_id == to_place_id,
+                # "On the way": a small detour for the host, and the rider gets off first.
+                and_(detour <= MAX_DETOUR_METERS, start_to_rider < whole_trip),
+            ),
         )
         .order_by(Trip.depart_at, Trip.id)
         .limit(limit + 1)
     )
     if cursor:
         stmt = stmt.where(tuple_(Trip.depart_at, Trip.id) > tuple_(*decode_cursor(cursor)))
-    trips = list(await db.scalars(stmt))
-    return make_page(trips, limit, lambda t: (t.depart_at, t.id), TripOut.model_validate)
+    rows = (await db.execute(stmt)).all()
+
+    def to_result(row) -> SearchResult:
+        trip, detour_m = row
+        same = trip.to_place_id == to_place_id
+        return SearchResult(
+            **TripOut.model_validate(trip).model_dump(),
+            match="same_destination" if same else "on_the_way",
+            detour_km=None if same else round(max(float(detour_m), 0.0) / 1000, 1),
+        )
+
+    return make_page(rows, limit, lambda row: (row[0].depart_at, row[0].id), to_result)
 
 
 async def search_trips(
@@ -139,7 +184,7 @@ async def search_trips(
     window_minutes: int,
     cursor: str | None = None,
     limit: int = DEFAULT_LIMIT,
-) -> Page[TripOut]:
+) -> Page[SearchResult]:
     """Cache-aside: read the cache, on a miss query MySQL and fill the cache.
 
     When a full train arrives, hundreds of people run the same search within a minute;
@@ -152,7 +197,7 @@ async def search_trips(
         f":{window_minutes}:{limit}:{cursor or ''}"
     )
     if (cached := await kv.get(key)) is not None:
-        page = Page[TripOut].model_validate_json(cached)
+        page = Page[SearchResult].model_validate_json(cached)
     else:
         page = await _search_page(db, from_place_id, to_place_id, at, window_minutes, cursor, limit)
         await kv.set(key, page.model_dump_json(), SEARCH_CACHE_SECONDS)

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api.js";
+import PlaceMap from "../components/PlaceMap.jsx";
 import { DEFAULT_STATION, PlaceSelect, usePlaces } from "../components/PlaceSelect.jsx";
 import { VEHICLE_LABEL, formatTime, fromLocalInput, plural, splitFare, toLocalInput } from "../format.js";
 
@@ -15,6 +16,11 @@ function TripCard({ trip, message, onJoin }) {
       <p className="route">
         {trip.from_place.name} → {trip.to_place.name}
       </p>
+      {trip.match === "on_the_way" && (
+        <p className="badge-way">
+          On the way: drops you first (about {trip.detour_km} km extra for the host)
+        </p>
+      )}
       <p className="muted">
         Host: {trip.host.display_name} · {VEHICLE_LABEL[trip.vehicle]} · ±{trip.flex_minutes} min
       </p>
@@ -93,6 +99,8 @@ export default function FindRide() {
     <>
       <form className="card form" onSubmit={search}>
         <h1>Find a ride</h1>
+        <PlaceMap places={places} fromId={pickup} toId={toId} onPick={(id) => id !== pickup && setToId(id)} />
+        <p className="muted hint">Tap a place on the map to choose where you are going.</p>
         <PlaceSelect label="From" places={places} value={pickup} onChange={setFromId} />
         <PlaceSelect label="Going to" places={places} value={toId} onChange={setToId} exclude={pickup} />
         <label>

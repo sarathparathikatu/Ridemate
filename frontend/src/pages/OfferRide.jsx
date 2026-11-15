@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
+import PlaceMap from "../components/PlaceMap.jsx";
 import { DEFAULT_STATION, PlaceSelect, usePlaces } from "../components/PlaceSelect.jsx";
 import { MAX_SEATS, VEHICLE_LABEL, fromLocalInput, toLocalInput } from "../format.js";
 
@@ -55,6 +56,8 @@ export default function OfferRide() {
     <form className="card form" onSubmit={submit}>
       <h1>Offer a ride</h1>
       <p className="muted">You book the auto or cab; others from your train join and split the fare.</p>
+      <PlaceMap places={places} fromId={pickup} toId={toId} onPick={(id) => id !== pickup && setToId(id)} />
+      <p className="muted hint">Tap a place on the map to choose where you are going.</p>
       <PlaceSelect label="From" places={places} value={pickup} onChange={setFromId} />
       <PlaceSelect label="Going to" places={places} value={toId} onChange={setToId} exclude={pickup} />
       <label>

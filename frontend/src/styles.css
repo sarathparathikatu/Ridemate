@@ -349,6 +349,34 @@ a {
   font-size: 0.9rem;
 }
 
+.map {
+  height: 220px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.map .leaflet-container {
+  height: 100%;
+  font: inherit;
+}
+
+.hint {
+  margin-top: -6px;
+  font-size: 0.8rem;
+}
+
+.badge-way {
+  margin: 0;
+  align-self: flex-start;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e3e8f7;
+  color: #2f3e86;
+}
+
 button.more {
   width: 100%;
   margin-bottom: 12px;

@@ -10,7 +10,7 @@ from app.models import Trip
 from app.schemas.common import to_utc_naive, utc_now
 from app.schemas.join_request import IncomingRequestOut, JoinRequestCreate, MyRequestOut
 from app.schemas.pagination import DEFAULT_LIMIT, MAX_LIMIT, Page
-from app.schemas.trip import TripCreate, TripDetail, TripOut, TripUpdate
+from app.schemas.trip import SearchResult, TripCreate, TripDetail, TripOut, TripUpdate
 from app.services import request_service, trip_service
 
 router = APIRouter(prefix="/trips", tags=["trips"])
@@ -30,7 +30,7 @@ async def post_trip(body: TripCreate, db: DbSession, current_user: CurrentUser) 
 Limit = Annotated[int, Query(ge=1, le=MAX_LIMIT)]
 
 
-@router.get("/search", response_model=Page[TripOut])
+@router.get("/search", response_model=Page[SearchResult])
 async def search_trips(
     db: DbSession,
     current_user: CurrentUser,
@@ -40,8 +40,9 @@ async def search_trips(
     window_minutes: Annotated[int, Query(ge=5, le=180)] = 30,
     cursor: str | None = None,
     limit: Limit = DEFAULT_LIMIT,
-) -> Page[TripOut]:
-    """Open trips from others: same pickup and destination, departing within the window."""
+) -> Page[SearchResult]:
+    """Open trips from others leaving the same pickup within the window, going to your
+    destination or passing it on the way."""
     when = to_utc_naive(at) if at else utc_now()
     return await trip_service.search_trips(
         db, current_user, from_place_id, to_place_id, when, window_minutes, cursor, limit

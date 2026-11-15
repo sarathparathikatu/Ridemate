@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -79,6 +80,14 @@ class TripOut(BaseModel):
     note: str | None
     status: TripStatus
     created_at: UTCOutput
+
+
+class SearchResult(TripOut):
+    """A search hit, plus how it matches the rider's destination."""
+
+    match: Literal["same_destination", "on_the_way"]
+    # Extra distance the host drives to drop the rider (only for "on_the_way" matches).
+    detour_km: float | None = None
 
 
 class RiderOut(ContactOut):

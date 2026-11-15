@@ -9,3 +9,5 @@ class PlaceOut(BaseModel):
     id: int
     name: str
     kind: PlaceKind
+    lat: float
+    lng: float
