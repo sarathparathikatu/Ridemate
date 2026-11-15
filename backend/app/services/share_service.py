@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import hash_token, new_opaque_token
 from app.models import TripShare, User
 from app.schemas.common import utc_now
-from app.schemas.place import PlaceOut
 from app.schemas.safety import ShareLinkOut, ShareView
 from app.services.errors import ForbiddenError, NotFoundError
 from app.services.trip_service import get_trip, member_ids
@@ -34,8 +33,8 @@ async def view(db: AsyncSession, token: str) -> ShareView:
     return ShareView(
         shared_by=sharer.display_name,
         host_name=trip.host.display_name,
-        from_place=PlaceOut.model_validate(trip.from_place),
-        to_place=PlaceOut.model_validate(trip.to_place),
+        start=trip.start,
+        end=trip.end,
         depart_at=trip.depart_at,
         vehicle=trip.vehicle,
         status=trip.status,

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api.js";
-import PlaceMap from "../components/PlaceMap.jsx";
+import RideMap from "../components/RideMap.jsx";
 import { VEHICLE_LABEL, formatTime } from "../format.js";
 
 // Public page (no login): what a family member sees when you share a ride with them.
@@ -25,12 +25,12 @@ export default function SharedRide() {
         <span className={`pill ${ride.status}`}>{ride.status}</span>
       </div>
       <p className="route">
-        {ride.from_place.name} → {ride.to_place.name}
+        {ride.start.label} → {ride.end.label}
       </p>
       <p className="muted">
         Host: {ride.host_name} · {VEHICLE_LABEL[ride.vehicle]} · {ride.riders} people in this ride
       </p>
-      <PlaceMap places={[ride.from_place, ride.to_place]} fromId={ride.from_place.id} toId={ride.to_place.id} />
+      <RideMap from={ride.start} to={ride.end} />
       <p className="muted">Only the route and time are shown here. Phone numbers stay private.</p>
     </article>
   );

@@ -349,6 +349,64 @@ a {
   font-size: 0.9rem;
 }
 
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.slots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.slot-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  font-weight: 400;
+}
+
+.slot.active .slot-button {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px var(--open);
+}
+
+.slot-name {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.slot-value {
+  font-weight: 600;
+}
+
+.list-choice {
+  font-size: 0.9rem;
+}
+
+.list-choice summary {
+  cursor: pointer;
+  color: var(--brand);
+  font-weight: 600;
+}
+
+.list-choice label {
+  margin-top: 8px;
+}
+
 .map {
   height: 220px;
   border-radius: 12px;

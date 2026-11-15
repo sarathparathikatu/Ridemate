@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
-import PlaceMap from "../components/PlaceMap.jsx";
-import { DEFAULT_STATION, PlaceSelect, usePlaces } from "../components/PlaceSelect.jsx";
+import LocationPicker from "../components/LocationPicker.jsx";
+import { usePlaces } from "../usePlaces.js";
 import { MAX_SEATS, VEHICLE_LABEL, fromLocalInput, toLocalInput } from "../format.js";
+
+const asPoint = ({ lat, lng, label }) => ({ lat, lng, label: label.trim() || "Pinned spot" });
 
 export default function OfferRide() {
   const navigate = useNavigate();
   const prefill = useLocation().state ?? {}; // set when coming from an empty search
   const { places, error: placesError } = usePlaces();
-  const [fromId, setFromId] = useState(prefill.fromId ?? "");
-  const [toId, setToId] = useState(prefill.toId ?? "");
+  const [from, setFrom] = useState(prefill.from ?? null);
+  const [to, setTo] = useState(prefill.to ?? null);
   const [when, setWhen] = useState(prefill.when ?? toLocalInput(new Date(Date.now() + 15 * 60000)));
   const [vehicle, setVehicle] = useState("auto");
   const [seats, setSeats] = useState(2);
@@ -20,8 +22,6 @@ export default function OfferRide() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const station = places.find((p) => p.name === DEFAULT_STATION);
-  const pickup = fromId || (station ? String(station.id) : "");
   const maxSeats = MAX_SEATS[vehicle];
 
   function changeVehicle(value) {
@@ -31,12 +31,16 @@ export default function OfferRide() {
 
   async function submit(event) {
     event.preventDefault();
+    if (!from || !to) {
+      setError("Set your pickup and destination (use your location, or tap the map).");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       await api.postTrip({
-        from_place_id: Number(pickup),
-        to_place_id: Number(toId),
+        start: asPoint(from),
+        end: asPoint(to),
         depart_at: fromLocalInput(when),
         vehicle,
         seats_total: seats,
@@ -56,10 +60,7 @@ export default function OfferRide() {
     <form className="card form" onSubmit={submit}>
       <h1>Offer a ride</h1>
       <p className="muted">You book the auto or cab; others from your train join and split the fare.</p>
-      <PlaceMap places={places} fromId={pickup} toId={toId} onPick={(id) => id !== pickup && setToId(id)} />
-      <p className="muted hint">Tap a place on the map to choose where you are going.</p>
-      <PlaceSelect label="From" places={places} value={pickup} onChange={setFromId} />
-      <PlaceSelect label="Going to" places={places} value={toId} onChange={setToId} exclude={pickup} />
+      <LocationPicker places={places} from={from} to={to} onFrom={setFrom} onTo={setTo} editableLabels />
       <label>
         Leaving at
         <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} required />

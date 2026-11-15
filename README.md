@@ -11,8 +11,9 @@ See the [concept screens (PDF)](docs/RideMate-concept.pdf) for where the design 
 
 ## Features
 
-- **Rides**: post a ride, search by pickup, destination and time, with **"on the way"**
-  matches computed in MySQL with `ST_Distance_Sphere`; map view (Leaflet + OpenStreetMap).
+- **Works in any city**: rides start and end anywhere (phone GPS, a pin on the map, or a
+  known place). "Rides starting near me" uses a MySQL **SPATIAL index**, plus
+  **"on the way"** matches computed with `ST_Distance_Sphere`; Leaflet + OpenStreetMap map.
 - **Join requests**: request, accept, decline, cancel; row locking guarantees the last seat
   can't be given twice.
 - **Live updates**: WebSockets (Redis pub/sub across server processes), toasts and
@@ -21,7 +22,7 @@ See the [concept screens (PDF)](docs/RideMate-concept.pdf) for where the design 
   reuse detection.
 - **Trust & safety**: phone verification by OTP, ratings after a completed ride, report and
   block, share-with-family links, contacts hidden until a request is accepted.
-- **Scale**: keyset pagination, a composite search index (EXPLAIN demo: ~500x faster),
+- **Scale**: keyset pagination, spatial and composite indexes (EXPLAIN demo: 660 ms -> 4.6 ms),
   Redis cache with versioned invalidation, per-user and per-IP rate limits.
 - **Installable app**: PWA manifest and service worker, mobile-first UI.
 - **AI**: an MCP server so Claude Desktop can find, post and join rides for you.
@@ -82,7 +83,7 @@ App: http://localhost:8080. Details and going live: [docs/DEPLOYMENT.md](docs/DE
 cd backend
 uv run pytest -v
 ```
-22 integration tests against the real MySQL, including concurrent accepts for the last
+26 integration tests against the real MySQL, including concurrent accepts for the last
 seat, refresh-token theft detection, live WebSocket events (in-process and via Redis), rate
 limits, "on the way" matching, OTP and blocking. CI runs them on every push with real MySQL
 and Redis, plus a migration drift check and a full rollback.

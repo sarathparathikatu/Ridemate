@@ -115,7 +115,7 @@ async def test_share_link_shows_the_ride_without_contacts(client):
     assert view.status_code == 200
     body = view.json()
     assert body["shared_by"] == "SafeRider" and body["riders"] == 2
-    assert body["to_place"]["name"] == KULATHOOR
+    assert body["end"]["label"] == KULATHOOR
     assert "9000000001" not in view.text and "email" not in view.text
 
     outsider = await make_user(client, "Nosy")

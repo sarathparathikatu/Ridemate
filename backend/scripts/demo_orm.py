@@ -42,8 +42,8 @@ async def main() -> None:
         step("4. Post a trip for that user -> INSERT")
         trip = Trip(
             host_id=user.id,
-            from_place_id=station.id,
-            to_place_id=kulathoor.id,
+            from_lat=station.lat, from_lng=station.lng, from_label=station.name,
+            to_lat=kulathoor.lat, to_lng=kulathoor.lng, to_label=kulathoor.name,
             depart_at=utc_now() + timedelta(minutes=30),
             seats_total=2,
         )

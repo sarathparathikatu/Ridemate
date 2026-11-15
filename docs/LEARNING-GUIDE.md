@@ -160,11 +160,15 @@ The server fetches `limit + 1` rows: the extra one only tells it there's a next 
 
 ### 3.2 The search index, proven with EXPLAIN
 
+> History: this section describes the first, place-based search. Search later moved to
+> free locations with a SPATIAL index (Part 5), and `scripts/explain_search.py` now
+> demonstrates that. The B-tree lessons below still apply.
+
 Index: `ix_trips_search (from_place_id, status, depart_at)` in `backend/app/models/trip.py`.
 Rule: **equality columns first, the range column last.** MySQL can then jump straight to
 "from = station AND status = open" and read the `depart_at` range already in order.
 
-Run `uv run python -m scripts.explain_search` (backend folder). Measured on 30,000 rides:
+Measured on 30,000 rides (with the place-based version of the script):
 
 | | Without the index | With it |
 |---|---|---|
@@ -190,8 +194,10 @@ memory otherwise (fine for one server; that's why production sets Redis).
 
 Search uses **cache-aside** (`trip_service.search_trips`): look in the cache, and on a miss
 query MySQL and store the result for 30 s. Invalidation uses **versioned keys**: every
-cache key contains the pickup point's version number, and any change that affects results
-bumps it (`invalidate_search`), making all old entries unreachable at once. Per-user
+cache key contains a version number, and any change that affects results bumps it
+(`invalidate_search`), making all old entries unreachable at once. Positions are snapped
+to a ~100 m grid so people standing near each other share entries. (With free locations
+the version is global; per-area versions would keep more of the cache warm at scale.) Per-user
 filtering (your own rides, blocked users) happens *after* the cache, so one cached page
 serves everyone on the train.
 
@@ -280,20 +286,76 @@ a push service). The app notifies while it's open or in a background tab.
 
 ---
 
-## Part 5 — Maps and location
+## Part 5 — Maps and location (works in any city)
 
-- Places have `DECIMAL(9,6)` coordinates (exact, ~11 cm precision; FLOAT would round).
-- **On the way** matching (`trip_service._search_page`), computed in MySQL:
-  `detour = dist(start, rider) + dist(rider, end) - dist(start, end)`, a match when the
-  detour is at most 1.5 km and the rider gets off first. `ST_Distance_Sphere(POINT(lng, lat), ...)`
-  gives metres; note POINT takes longitude first.
-- The index narrows candidates first; distance maths only runs on what's left.
-- Frontend map: Leaflet + OpenStreetMap tiles (`frontend/src/components/PlaceMap.jsx`).
+Rides start and end at **any point**, not only a fixed list of places: the phone's GPS,
+a pin dropped on the map, or a known place (grey dots, kept as quick picks). That's what
+makes RideMate work in Kozhikode, Thrissur or anywhere, with no setup per city.
 
-**Interview:** *"How would you find nearby drivers at scale?"*
-Index geography: a `SPATIAL` index on a POINT column (MySQL R-tree), geohashes, or Redis
-GEO commands (`GEOSEARCH`). Filter by a bounding box with the index, then compute exact
-distances on the small candidate set.
+### 5.1 How a location is stored
+
+`backend/app/models/trip.py`: each trip has `from_lat/from_lng/from_label` and
+`to_lat/to_lng/to_label` (`DECIMAL(9,6)`: exact, ~11 cm precision; FLOAT would round).
+`from_place_id/to_place_id` are only set when a known place was picked.
+
+MySQL also keeps a **generated column** `from_point POINT ... SRID 0`, computed from the
+coordinates and stored, which exists only to carry a **SPATIAL index**. Gotchas found while
+building it (`migrations/versions/*_free_locations.py`):
+- For a generated column MySQL wants `... STORED NOT NULL SRID 0`; `POINT SRID 0 GENERATED ...`
+  is a syntax error (found by testing variants on a temporary table).
+- The column must have a fixed SRID, or the optimizer won't use the spatial index.
+- `POINT(x, y)` takes **longitude first**.
+
+### 5.2 "Rides starting near me"
+
+`trip_service._search_page`, three steps:
+
+1. **Spatial index**: `MBRContains(box, from_point)`, rides whose start lies in a ~2 km
+   square around the rider. An R-tree index answers "what's inside this box?" without
+   scanning every ride. The box comes from `app/core/geo.py` (`bounding_box_wkt`); a degree
+   of longitude shrinks away from the equator, so the box divides by `cos(latitude)`.
+2. **Exact circle**: `ST_Distance_Sphere(...) <= 1000` keeps those really within 1 km (the
+   index can't evaluate a distance; it only narrows the candidates).
+3. **Destination**: the ride ends within 1 km of where the rider is going (same destination)
+   or passes it on the way: `detour = dist(start, rider) + dist(rider, end) - dist(start, end)`
+   at most 1.5 km, and the rider gets off first.
+
+Each result says how far the rider walks to the host's start (`pickup_distance_m`).
+
+Run `uv run python -m scripts.explain_search` (backend folder). Measured on 30,000 rides
+scattered over ~100 km:
+
+| Plan | Rows examined | Time |
+|---|---|---|
+| No index (full scan, distance computed per row) | ~30,000 | 660 ms |
+| Time index only `(status, depart_at)` | 169 | 9.4 ms |
+| **SPATIAL index** (MySQL's own choice) | **14** | **4.6 ms** |
+
+The optimizer picked the spatial index by itself because "inside this 2 km box" is far
+more selective than "in this 90-minute window".
+
+### 5.3 The frontend
+
+- `frontend/src/components/LocationPicker.jsx`: "Use my location" (browser
+  `navigator.geolocation`), tap the map to drop a pin for the active field, tap a grey dot,
+  or pick from a list. Hosts can rename pins ("Main exit"). If location is blocked (a
+  locked-down laptop, a denied permission) the user gets a clear message and taps instead.
+- `frontend/src/components/RideMap.jsx`: Leaflet + OpenStreetMap tiles; zooms to the route
+  once both ends are set.
+- `frontend/src/geo.js`: the same haversine distance in JavaScript, and friendly pin names
+  ("Near Kulathoor") when a known place is close.
+- Browsers only share location on **HTTPS** (or localhost), another reason deployment needs
+  HTTPS.
+
+**Interview:** *"How would you find nearby drivers (or rides) at scale?"*
+Index geography: a SPATIAL (R-tree) index on a POINT column, geohashes in a B-tree, or
+Redis GEO commands (`GEOSEARCH`). Filter by a bounding box with the index, then compute exact
+distances on the small candidate set. Check with EXPLAIN that the index is actually used.
+
+**Interview:** *"Why not just compute the distance to every row?"*
+A distance function on a column can't use a normal index, so MySQL must scan and compute
+for every row: 660 ms here at 30,000 rides, growing linearly. The index narrows it to a
+handful of candidates first.
 
 ---
 
@@ -387,11 +449,15 @@ tool output.
 | New requests invisible until page reload | Browser test | React keeps mounted components; refetch deliberately |
 | Stale rating on Profile | Browser test | State loaded at login goes stale |
 | Share button did nothing on desktop Edge | Browser test | Always have a fallback for platform APIs |
+| `POINT SRID 0 GENERATED ...` syntax error | Migration failed halfway | Test DDL variants on a temporary table first |
+| A chained "down then up" command ran after a failed migration and reset local data | My own mistake while building | Run migration steps one at a time and stop at the first error |
 
 ## Known gaps (honest list)
 
 - Same-origin `/api` mode behind nginx: one browser test failed on the corporate laptop and
   wasn't diagnosed. Verify with `docker compose` (see `docs/DEPLOYMENT.md`).
 - Docker images and CI haven't run yet. They run on your first push to GitHub.
-- Place coordinates are approximate.
+- Known places' coordinates are approximate (free pins and GPS are exact).
+- No address search yet (typing "Mavoor Road"): it needs a geocoding service such as
+  OpenStreetMap's Nominatim. Users set places by GPS, map taps or the known-places list.
 - No admin screen for reports; no Web Push while the app is closed; SMS uses the dev console.

@@ -62,8 +62,9 @@ Core flow:
 | D: phone OTP, ratings, report/block, share with family | ✅ built, browser-tested | "Phase D" |
 | E: Docker, CI, deployment guide | ✅ written; runs on first push / with Docker | "Phase E" |
 | F: MCP server for Claude Desktop (Layer 3) | ✅ built, tested over stdio | "Phase F" |
+| Option 2: any location in any city (GPS, map pins, SPATIAL index) | ✅ built, browser-tested in Kozhikode | "Any location" |
 
-Still to do: verify the Docker / same-origin `/api` setup on a machine with Docker, deploy,
+Still to do: address search (geocoding), verify the Docker / same-origin `/api` setup on a machine with Docker, deploy,
 fix the approximate place coordinates, add a real SMS provider, an admin screen for reports,
 and Web Push for notifications while the app is closed. Study material: docs/LEARNING-GUIDE.md.
 

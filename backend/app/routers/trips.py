@@ -13,6 +13,7 @@ from app.schemas.pagination import DEFAULT_LIMIT, MAX_LIMIT, Page
 from app.schemas.safety import RatingCreate, ShareLinkOut
 from app.schemas.trip import SearchResult, TripCreate, TripDetail, TripOut, TripUpdate
 from app.services import rating_service, request_service, share_service, trip_service
+from app.services.errors import DomainError
 
 router = APIRouter(prefix="/trips", tags=["trips"])
 
@@ -31,22 +32,41 @@ async def post_trip(body: TripCreate, db: DbSession, current_user: VerifiedUser)
 Limit = Annotated[int, Query(ge=1, le=MAX_LIMIT)]
 
 
+Lat = Annotated[float | None, Query(ge=-90, le=90)]
+Lng = Annotated[float | None, Query(ge=-180, le=180)]
+
+
+async def _point(db, lat: float | None, lng: float | None, place_id: int | None, what: str):
+    """A search end from coordinates (GPS / map pin) or, for older clients, a place id."""
+    if lat is not None and lng is not None:
+        return lat, lng
+    if place_id is not None:
+        return await trip_service.place_point(db, place_id)
+    raise DomainError(f"Give the {what} as {what}_lat + {what}_lng (or a place id)")
+
+
 @router.get("/search", response_model=Page[SearchResult])
 async def search_trips(
     db: DbSession,
     current_user: CurrentUser,
-    from_place_id: int,
-    to_place_id: int,
+    from_lat: Lat = None,
+    from_lng: Lng = None,
+    to_lat: Lat = None,
+    to_lng: Lng = None,
+    from_place_id: int | None = None,
+    to_place_id: int | None = None,
     at: AwareDatetime | None = None,
     window_minutes: Annotated[int, Query(ge=5, le=180)] = 30,
     cursor: str | None = None,
     limit: Limit = DEFAULT_LIMIT,
 ) -> Page[SearchResult]:
-    """Open trips from others leaving the same pickup within the window, going to your
-    destination or passing it on the way."""
+    """Open rides from others starting near you (within 1 km) around a time, going to your
+    destination or passing it on the way. Positions: coordinates, or known place ids."""
+    origin = await _point(db, from_lat, from_lng, from_place_id, "from")
+    destination = await _point(db, to_lat, to_lng, to_place_id, "to")
     when = to_utc_naive(at) if at else utc_now()
     return await trip_service.search_trips(
-        db, current_user, from_place_id, to_place_id, when, window_minutes, cursor, limit
+        db, current_user, origin, destination, when, window_minutes, cursor, limit
     )
 
 

@@ -137,7 +137,7 @@ async def accept_request(db: AsyncSession, user: User, request_id: int) -> JoinR
         trip.status = TripStatus.FULL
     req.status = RequestStatus.ACCEPTED
     await db.commit()  # releases the locks; a waiting transaction now sees the new seats
-    await invalidate_search(trip.from_place_id)  # seats left / full status changed
+    await invalidate_search()  # seats left / full status changed
     await broker.publish(
         [req.requester_id],
         {
@@ -187,7 +187,7 @@ async def cancel_request(db: AsyncSession, user: User, request_id: int) -> JoinR
             trip.status = TripStatus.OPEN
     req.status = RequestStatus.CANCELLED
     await db.commit()
-    await invalidate_search(trip.from_place_id)
+    await invalidate_search()
     await broker.publish(
         [trip.host_id],
         {

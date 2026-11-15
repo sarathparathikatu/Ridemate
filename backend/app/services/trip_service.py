@@ -2,9 +2,10 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import and_, func, or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased, joinedload
+from sqlalchemy.orm import joinedload
 
 from app.core import kv
+from app.core.geo import bounding_box_wkt, distance_m
 from app.models import JoinRequest, Place, RequestStatus, Trip, TripStatus, User
 from app.realtime import broker
 from app.schemas.common import utc_now
@@ -22,26 +23,31 @@ from app.schemas.user import ContactOut
 from app.services import safety_service
 from app.services.errors import ConflictError, DomainError, ForbiddenError, NotFoundError
 
-# A trip is always shown with its host and both places. Loading them in the SAME query
-# (JOINs) avoids the N+1 problem: 20 search results = 1 query, not 1 + 20 x 3.
-WITH_DETAILS = (joinedload(Trip.host), joinedload(Trip.from_place), joinedload(Trip.to_place))
+# A trip is always shown with its host. Loading the host in the SAME query (a JOIN)
+# avoids the N+1 problem: 20 search results = 1 query, not 1 + 20.
+WITH_DETAILS = (joinedload(Trip.host),)
 
 ACTIVE = (TripStatus.OPEN, TripStatus.FULL)
 
 SEARCH_CACHE_SECONDS = 30
-# How much extra distance a host is assumed to accept to drop a rider on the way.
-# Straight-line metres: a rough stand-in for road distance, good enough for nearby stops.
-MAX_DETOUR_METERS = 1500
+# Distances are straight-line metres: a rough stand-in for walking/road distance that is
+# good enough at city scale.
+PICKUP_RADIUS_M = 1000  # rides starting within this distance of the rider
+DEST_RADIUS_M = 1000  # a ride ending this close to the rider's destination = same destination
+MAX_DETOUR_METERS = 1500  # extra distance a host is assumed to accept to drop a rider
+MIN_TRIP_METERS = 200  # shorter than this isn't a ride
 
 
-async def invalidate_search(from_place_id: int) -> None:
-    """Call after any change that could alter search results for this pickup point.
+async def invalidate_search() -> None:
+    """Call after any change that could alter search results.
 
-    Every cached search key contains the pickup point's version number. Bumping it makes
-    all old entries unreachable at once (they expire by themselves), so there is no need
-    to find and delete each key.
+    Every cached search key contains this version number. Bumping it makes all old
+    entries unreachable at once (they expire by themselves), so there is no need to find
+    and delete each key. Trade-off: with free locations there is no natural "area" to
+    version, so one change anywhere invalidates every search. Per-area versions (a grid of
+    cells) would keep more of the cache warm in a large deployment.
     """
-    await kv.incr(f"search-ver:{from_place_id}")
+    await kv.incr("search-ver")
 
 
 async def get_trip(db: AsyncSession, trip_id: int, *, lock: bool = False) -> Trip:
@@ -82,15 +88,38 @@ async def _get_own_trip(db: AsyncSession, user: User, trip_id: int) -> Trip:
     return trip
 
 
-async def create_trip(db: AsyncSession, host: User, data: TripCreate) -> Trip:
-    for place_id in (data.from_place_id, data.to_place_id):
-        if await db.get(Place, place_id) is None:
+async def _resolve(
+    db: AsyncSession, place_id: int | None, point
+) -> tuple[float, float, str, int | None]:
+    """One end of a ride as (lat, lng, label, place_id): a known place, or any point."""
+    if place_id is not None:
+        place = await db.get(Place, place_id)
+        if place is None:
             raise NotFoundError(f"Place {place_id} not found")
-    # host_id comes from the verified token, never from the request body.
-    trip = Trip(host_id=host.id, **data.model_dump())
+        return float(place.lat), float(place.lng), place.name, place.id
+    return point.lat, point.lng, point.label.strip(), None
+
+
+async def create_trip(db: AsyncSession, host: User, data: TripCreate) -> Trip:
+    from_lat, from_lng, from_label, from_place_id = await _resolve(db, data.from_place_id, data.start)
+    to_lat, to_lng, to_label, to_place_id = await _resolve(db, data.to_place_id, data.end)
+    if distance_m(from_lat, from_lng, to_lat, to_lng) < MIN_TRIP_METERS:
+        raise DomainError("Pickup and destination are too close together")
+    trip = Trip(
+        host_id=host.id,  # from the verified token, never from the request body
+        from_lat=from_lat,
+        from_lng=from_lng,
+        from_label=from_label,
+        from_place_id=from_place_id,
+        to_lat=to_lat,
+        to_lng=to_lng,
+        to_label=to_label,
+        to_place_id=to_place_id,
+        **data.model_dump(exclude={"from_place_id", "to_place_id", "start", "end"}),
+    )
     db.add(trip)
     await db.commit()
-    await invalidate_search(trip.from_place_id)
+    await invalidate_search()
     return await get_trip(db, trip.id)
 
 
@@ -112,49 +141,56 @@ async def list_my_trips(
     return make_page(trips, limit, lambda t: (t.depart_at, t.id), TripOut.model_validate)
 
 
-def _distance(a: Place, b_lng, b_lat):
+def _distance(lat_a, lng_a, lat_b, lng_b):
     """Great-circle distance in metres, computed by MySQL. POINT takes (longitude, latitude)."""
-    return func.ST_Distance_Sphere(func.POINT(a.lng, a.lat), func.POINT(b_lng, b_lat))
+    return func.ST_Distance_Sphere(func.POINT(lng_a, lat_a), func.POINT(lng_b, lat_b))
 
 
 async def _search_page(
     db: AsyncSession,
-    from_place_id: int,
-    to_place_id: int,
+    origin: tuple[float, float],
+    destination: tuple[float, float],
     at: datetime,
     window_minutes: int,
     cursor: str | None,
     limit: int,
 ) -> Page[SearchResult]:
-    """The database part of search. Nothing user-specific here, so the result is cacheable."""
-    rider_stop = await db.get(Place, to_place_id)
-    if rider_stop is None:
-        raise NotFoundError("Place not found")
+    """The database part of search. Nothing user-specific here, so the result is cacheable.
 
-    start, end = aliased(Place), aliased(Place)  # the trip's own pickup and destination
-    start_to_rider = _distance(start, rider_stop.lng, rider_stop.lat)
-    rider_to_end = func.ST_Distance_Sphere(
-        func.POINT(rider_stop.lng, rider_stop.lat), func.POINT(end.lng, end.lat)
-    )
-    whole_trip = _distance(start, end.lng, end.lat)
-    detour = start_to_rider + rider_to_end - whole_trip  # extra metres to drop the rider
+    1. SPATIAL index: rides whose start lies in a box around the rider (fast).
+    2. Exact circle: keep those really within PICKUP_RADIUS_M.
+    3. Destination: ends near the rider's destination, or passes it on the way.
+    """
+    o_lat, o_lng = origin
+    d_lat, d_lng = destination
+    pickup = _distance(Trip.from_lat, Trip.from_lng, o_lat, o_lng)  # how far the rider walks
+    start_to_dest = _distance(Trip.from_lat, Trip.from_lng, d_lat, d_lng)
+    dest_to_end = _distance(d_lat, d_lng, Trip.to_lat, Trip.to_lng)
+    whole_trip = _distance(Trip.from_lat, Trip.from_lng, Trip.to_lat, Trip.to_lng)
+    detour = start_to_dest + dest_to_end - whole_trip  # extra metres to drop the rider
 
+    # MBRContains(box, point) can use the SPATIAL index on from_point; ST_Distance_Sphere
+    # can't (it has to be computed per row), so the box narrows the candidates first.
+    near_box = func.ST_GeomFromText(bounding_box_wkt(o_lat, o_lng, PICKUP_RADIUS_M), 0)
     window = timedelta(minutes=window_minutes)
     earliest = max(at - window, utc_now() - timedelta(minutes=10))  # never show departed rides
     stmt = (
-        select(Trip, detour.label("detour_m"))
-        .join(start, Trip.from_place_id == start.id)
-        .join(end, Trip.to_place_id == end.id)
+        select(
+            Trip,
+            pickup.label("pickup_m"),
+            dest_to_end.label("end_gap_m"),
+            detour.label("detour_m"),
+        )
         .options(*WITH_DETAILS)
         .where(
-            # These three use ix_trips_search; the distance maths only runs on what's left.
-            Trip.from_place_id == from_place_id,
+            func.MBRContains(near_box, Trip.from_point),
+            pickup <= PICKUP_RADIUS_M,
             Trip.status == TripStatus.OPEN,
             Trip.depart_at.between(earliest, at + window),
             or_(
-                Trip.to_place_id == to_place_id,
+                dest_to_end <= DEST_RADIUS_M,
                 # "On the way": a small detour for the host, and the rider gets off first.
-                and_(detour <= MAX_DETOUR_METERS, start_to_rider < whole_trip),
+                and_(detour <= MAX_DETOUR_METERS, start_to_dest < whole_trip),
             ),
         )
         .order_by(Trip.depart_at, Trip.id)
@@ -165,11 +201,12 @@ async def _search_page(
     rows = (await db.execute(stmt)).all()
 
     def to_result(row) -> SearchResult:
-        trip, detour_m = row
-        same = trip.to_place_id == to_place_id
+        trip, pickup_m, end_gap_m, detour_m = row
+        same = float(end_gap_m) <= DEST_RADIUS_M
         return SearchResult(
             **TripOut.model_validate(trip).model_dump(),
             match="same_destination" if same else "on_the_way",
+            pickup_distance_m=round(float(pickup_m)),
             detour_km=None if same else round(max(float(detour_m), 0.0) / 1000, 1),
         )
 
@@ -179,8 +216,8 @@ async def _search_page(
 async def search_trips(
     db: AsyncSession,
     user: User,
-    from_place_id: int,
-    to_place_id: int,
+    origin: tuple[float, float],
+    destination: tuple[float, float],
     at: datetime,
     window_minutes: int,
     cursor: str | None = None,
@@ -191,22 +228,33 @@ async def search_trips(
     When a full train arrives, hundreds of people run the same search within a minute;
     only the first one reaches MySQL.
     """
-    at = at.replace(second=0, microsecond=0)  # same-minute searches share one cache entry
-    version = await kv.get(f"search-ver:{from_place_id}") or "0"
+    # Snap positions to a ~100 m grid (3 decimal places) and times to the minute, so
+    # people standing near each other share one cache entry.
+    origin = (round(origin[0], 3), round(origin[1], 3))
+    destination = (round(destination[0], 3), round(destination[1], 3))
+    at = at.replace(second=0, microsecond=0)
+    version = await kv.get("search-ver") or "0"
     key = (
-        f"search:{from_place_id}:v{version}:{to_place_id}:{at.isoformat()}"
-        f":{window_minutes}:{limit}:{cursor or ''}"
+        f"search:v{version}:{origin[0]},{origin[1]}:{destination[0]},{destination[1]}"
+        f":{at.isoformat()}:{window_minutes}:{limit}:{cursor or ''}"
     )
     if (cached := await kv.get(key)) is not None:
         page = Page[SearchResult].model_validate_json(cached)
     else:
-        page = await _search_page(db, from_place_id, to_place_id, at, window_minutes, cursor, limit)
+        page = await _search_page(db, origin, destination, at, window_minutes, cursor, limit)
         await kv.set(key, page.model_dump_json(), SEARCH_CACHE_SECONDS)
     # Per-user filtering after the cache, so one cached page serves every rider:
     # not your own rides, and nobody you blocked or who blocked you.
     hidden = await safety_service.hidden_user_ids(db, user.id) | {user.id}
     page.items = [trip for trip in page.items if trip.host.id not in hidden]
     return page
+
+
+async def place_point(db: AsyncSession, place_id: int) -> tuple[float, float]:
+    place = await db.get(Place, place_id)
+    if place is None:
+        raise NotFoundError(f"Place {place_id} not found")
+    return float(place.lat), float(place.lng)
 
 
 async def get_trip_detail(db: AsyncSession, user: User, trip_id: int) -> TripDetail:
@@ -250,7 +298,7 @@ async def update_trip(db: AsyncSession, user: User, trip_id: int, data: TripUpda
     trip.status = TripStatus.FULL if trip.seats_left == 0 else TripStatus.OPEN
     riders = await _riders_waiting_on(db, trip.id)
     await db.commit()
-    await invalidate_search(trip.from_place_id)
+    await invalidate_search()
     await broker.publish(
         riders,
         {
@@ -273,13 +321,13 @@ async def cancel_trip(db: AsyncSession, user: User, trip_id: int) -> Trip:
         .values(status=RequestStatus.DECLINED)
     )
     await db.commit()
-    await invalidate_search(trip.from_place_id)
+    await invalidate_search()
     await broker.publish(
         riders,
         {
             "type": "trip.cancelled",
             "trip_id": trip.id,
-            "message": f"{user.display_name} cancelled the ride to {trip.to_place.name}",
+            "message": f"{user.display_name} cancelled the ride to {trip.to_label}",
         },
     )
     return await get_trip(db, trip.id)
@@ -308,7 +356,7 @@ async def complete_trip(db: AsyncSession, user: User, trip_id: int) -> Trip:
         .values(status=RequestStatus.DECLINED)
     )
     await db.commit()
-    await invalidate_search(trip.from_place_id)
+    await invalidate_search()
     await broker.publish(
         list(riders),
         {

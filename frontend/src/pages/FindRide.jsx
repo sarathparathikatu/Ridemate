@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "../api.js";
-import PlaceMap from "../components/PlaceMap.jsx";
-import { DEFAULT_STATION, PlaceSelect, usePlaces } from "../components/PlaceSelect.jsx";
+import LocationPicker from "../components/LocationPicker.jsx";
+import { usePlaces } from "../usePlaces.js";
 import { TrustBadges } from "../components/Trust.jsx";
 import { VEHICLE_LABEL, formatTime, fromLocalInput, plural, splitFare, toLocalInput } from "../format.js";
+import { formatDistance } from "../geo.js";
 
 function TripCard({ trip, message, onJoin }) {
   const share = splitFare(trip);
@@ -15,8 +16,9 @@ function TripCard({ trip, message, onJoin }) {
         <span className="pill open plain">{plural(trip.seats_left, "seat")} left</span>
       </div>
       <p className="route">
-        {trip.from_place.name} → {trip.to_place.name}
+        {trip.start.label} → {trip.end.label}
       </p>
+      <p className="muted">Starts {formatDistance(trip.pickup_distance_m)} from you</p>
       {trip.match === "on_the_way" && (
         <p className="badge-way">
           On the way: drops you first (about {trip.detour_km} km extra for the host)
@@ -44,9 +46,10 @@ function TripCard({ trip, message, onJoin }) {
 }
 
 export default function FindRide() {
+  const prefill = useLocation().state ?? {};
   const { places, error: placesError } = usePlaces();
-  const [fromId, setFromId] = useState("");
-  const [toId, setToId] = useState("");
+  const [from, setFrom] = useState(prefill.from ?? null);
+  const [to, setTo] = useState(prefill.to ?? null);
   const [when, setWhen] = useState(() => toLocalInput(new Date()));
   const [trips, setTrips] = useState(null);
   const [page, setPage] = useState({ params: null, next: null }); // for "Load more"
@@ -54,16 +57,23 @@ export default function FindRide() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // Default pickup: the station, the whole reason this app exists.
-  const station = places.find((p) => p.name === DEFAULT_STATION);
-  const pickup = fromId || (station ? String(station.id) : "");
-
   async function search(event) {
     event.preventDefault();
+    if (!from || !to) {
+      setError("Set where you are and where you're going (use your location, or tap the map).");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      const params = { from_place_id: pickup, to_place_id: toId, at: fromLocalInput(when), window_minutes: 45 };
+      const params = {
+        from_lat: from.lat,
+        from_lng: from.lng,
+        to_lat: to.lat,
+        to_lng: to.lng,
+        at: fromLocalInput(when),
+        window_minutes: 45,
+      };
       const result = await api.searchTrips(params);
       setTrips(result.items);
       setPage({ params, next: result.next_cursor });
@@ -101,10 +111,7 @@ export default function FindRide() {
     <>
       <form className="card form" onSubmit={search}>
         <h1>Find a ride</h1>
-        <PlaceMap places={places} fromId={pickup} toId={toId} onPick={(id) => id !== pickup && setToId(id)} />
-        <p className="muted hint">Tap a place on the map to choose where you are going.</p>
-        <PlaceSelect label="From" places={places} value={pickup} onChange={setFromId} />
-        <PlaceSelect label="Going to" places={places} value={toId} onChange={setToId} exclude={pickup} />
+        <LocationPicker places={places} from={from} to={to} onFrom={setFrom} onTo={setTo} />
         <label>
           Around
           <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} required />
@@ -117,8 +124,8 @@ export default function FindRide() {
 
       {trips?.length === 0 && (
         <div className="card empty">
-          <p>No rides yet for this route around that time.</p>
-          <Link className="button" to="/offer" state={{ fromId: pickup, toId, when }}>
+          <p>No rides starting near you for that destination around that time.</p>
+          <Link className="button" to="/offer" state={{ from, to, when }}>
             Offer one so others can join you
           </Link>
         </div>

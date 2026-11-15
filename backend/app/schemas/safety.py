@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.models import ReportReason, TripStatus, Vehicle
 from app.schemas.common import UTCOutput
-from app.schemas.place import PlaceOut
+from app.schemas.trip import LocationOut
 
 RatingTag = Literal["on_time", "friendly", "easy_to_find", "felt_safe"]
 
@@ -51,8 +51,8 @@ class ShareView(BaseModel):
 
     shared_by: str
     host_name: str
-    from_place: PlaceOut
-    to_place: PlaceOut
+    start: LocationOut
+    end: LocationOut
     depart_at: UTCOutput
     vehicle: Vehicle
     status: TripStatus

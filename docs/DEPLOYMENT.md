@@ -49,8 +49,8 @@ Any cloud VM with 1-2 GB RAM (AWS Lightsail, DigitalOcean, Hetzner, Azure, GCP..
    }
    ```
 
-HTTPS is required, not optional: browsers only allow service workers (installable app),
-the share sheet and secure cookies on HTTPS.
+HTTPS is required, not optional: browsers only allow location ("Use my location"),
+service workers (installable app), the share sheet and secure cookies on HTTPS.
 
 ### Option B: managed services
 

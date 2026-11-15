@@ -50,7 +50,7 @@ function HostedTrip({ trip, version, onChange }) {
         <StatusPill status={trip.status} />
       </div>
       <p className="route">
-        {trip.from_place.name} → {trip.to_place.name}
+        {trip.start.label} → {trip.end.label}
       </p>
       <p className="muted">
         {trip.seats_taken}/{trip.seats_total} seats taken · {VEHICLE_LABEL[trip.vehicle]}
@@ -138,7 +138,7 @@ function JoinedTrip({ req, onChange }) {
         <StatusPill status={trip.status === "cancelled" ? "cancelled" : req.status} />
       </div>
       <p className="route">
-        {trip.from_place.name} → {trip.to_place.name}
+        {trip.start.label} → {trip.end.label}
       </p>
       <p className="muted">
         Host: {trip.host.display_name} · {VEHICLE_LABEL[trip.vehicle]}

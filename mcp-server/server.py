@@ -115,8 +115,9 @@ def ride_summary(trip: dict) -> dict:
     return {
         "trip_id": trip["id"],
         "departs": ist(trip["depart_at"]),
-        "route": f'{trip["from_place"]["name"]} -> {trip["to_place"]["name"]}',
+        "route": f'{trip["start"]["label"]} -> {trip["end"]["label"]}',
         "match": (trip.get("match") or "").replace("_", " ") or None,
+        "starts_from_you_m": trip.get("pickup_distance_m"),
         "host": trip["host"]["display_name"],
         "host_verified": trip["host"]["phone_verified"],
         "host_rating": trip["host"]["rating_avg"],
@@ -149,23 +150,42 @@ async def list_places() -> list[dict]:
     return [{"name": p["name"], "kind": p["kind"]} for p in places]
 
 
+Lat = Annotated[float | None, Field(ge=-90, le=90)]
+Lng = Annotated[float | None, Field(ge=-180, le=180)]
+
+
 @mcp.tool(annotations=ToolAnnotations(read_only_hint=True))
 async def find_co_travellers(
-    destination: Place,
-    pickup: Place = DEFAULT_PICKUP,
+    destination: Annotated[
+        str | None, Field(description='A place name, e.g. "Kulathoor". Or give destination_lat/lng')
+    ] = None,
+    pickup: Annotated[
+        str | None, Field(description="A place name. Or give pickup_lat/lng. Default: Kazhakoottam Railway Station")
+    ] = None,
+    destination_lat: Lat = None,
+    destination_lng: Lng = None,
+    pickup_lat: Lat = None,
+    pickup_lng: Lng = None,
     around: Annotated[
         str | None,
         Field(description='ISO 8601 time WITH timezone, e.g. "2026-11-16T06:15:00+05:30". Default: now'),
     ] = None,
     window_minutes: Annotated[int, Field(ge=5, le=180, description="Look this many minutes before/after")] = 45,
 ) -> list[dict]:
-    """Find open rides by other people leaving `pickup` around a time, going to `destination`
-    or passing it on the way. Returns host, rating, seats left and the estimated fare share."""
-    params = {
-        "from_place_id": await api().place_id(pickup),
-        "to_place_id": await api().place_id(destination),
-        "window_minutes": window_minutes,
-    }
+    """Find open rides by other people starting within 1 km of the pickup around a time, going
+    to the destination or passing it on the way. Places can be names (known places) or
+    coordinates (works in any city). Returns host, rating, seats left, fare share."""
+    params: dict[str, Any] = {"window_minutes": window_minutes}
+    if pickup_lat is not None and pickup_lng is not None:
+        params |= {"from_lat": pickup_lat, "from_lng": pickup_lng}
+    else:
+        params["from_place_id"] = await api().place_id(pickup or DEFAULT_PICKUP)
+    if destination_lat is not None and destination_lng is not None:
+        params |= {"to_lat": destination_lat, "to_lng": destination_lng}
+    elif destination:
+        params["to_place_id"] = await api().place_id(destination)
+    else:
+        raise ToolError("Say where the user is going: a place name or destination_lat/lng")
     if around:
         params["at"] = around
     page = await api().call("GET", "/trips/search", params=params)
