@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # one server on a laptop); with it, every server process shares them through Redis.
     redis_url: str | None = None
 
+    rate_limit_enabled: bool = True
+
     # Browser origins allowed to call the API (the Vite dev server by default).
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 

@@ -36,9 +36,9 @@ async def test_full_ride_flow(client):
 
     # Rider finds it; the host doesn't see their own trip in search.
     params = {"from_place_id": places[STATION], "to_place_id": places[KULATHOOR]}
-    found = (await client.get("/trips/search", params=params, headers=rider)).json()
+    found = (await client.get("/trips/search", params=params, headers=rider)).json()["items"]
     assert trip["id"] in [t["id"] for t in found]
-    own = (await client.get("/trips/search", params=params, headers=host)).json()
+    own = (await client.get("/trips/search", params=params, headers=host)).json()["items"]
     assert trip["id"] not in [t["id"] for t in own]
 
     # Before acceptance: no contact for the rider.
@@ -67,7 +67,7 @@ async def test_full_ride_flow(client):
     detail = (await client.get(f"/trips/{trip['id']}", headers=rider)).json()
     assert detail["host_contact"]["phone"] == "9876543210"
     assert detail["seats_left"] == 1
-    mine = (await client.get("/requests/mine", headers=rider)).json()
+    mine = (await client.get("/requests/mine", headers=rider)).json()["items"]
     assert mine[0]["status"] == "accepted" and mine[0]["host_contact"] is not None
 
     # The rider can't edit or cancel the host's trip.
@@ -80,7 +80,7 @@ async def test_full_ride_flow(client):
 
     # Host cancels: the trip disappears from search.
     assert (await client.post(f"/trips/{trip['id']}/cancel", headers=host)).json()["status"] == "cancelled"
-    found = (await client.get("/trips/search", params=params, headers=rider)).json()
+    found = (await client.get("/trips/search", params=params, headers=rider)).json()["items"]
     assert trip["id"] not in [t["id"] for t in found]
 
 

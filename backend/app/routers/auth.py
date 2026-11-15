@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.dependencies.db import DbSession
+from app.dependencies.rate_limit import per_ip
 from app.models import User
 from app.schemas.auth import RefreshRequest, Token
 from app.schemas.user import UserCreate, UserOut
@@ -14,7 +15,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 # response_model=UserOut acts as a filter: even though we return the full User object,
 # only the public profile fields go out. hashed_password can never leak by accident.
-@router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=UserOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(per_ip("register", limit=5, window_seconds=600))],
+)
 async def register(body: UserCreate, db: DbSession) -> User:
     try:
         return await user_service.create_user(db, body)
@@ -25,7 +31,12 @@ async def register(body: UserCreate, db: DbSession) -> User:
 # OAuth2PasswordRequestForm reads form fields "username" + "password" (OAuth2 standard).
 # We treat "username" as the email. Following the standard makes Swagger's
 # "Authorize" button work out of the box.
-@router.post("/login", response_model=Token)
+# 10 tries a minute per IP: plenty for a human, useless for password guessing.
+@router.post(
+    "/login",
+    response_model=Token,
+    dependencies=[Depends(per_ip("login", limit=10, window_seconds=60))],
+)
 async def login(form: Annotated[OAuth2PasswordRequestForm, Depends()], db: DbSession) -> Token:
     user = await user_service.authenticate_user(db, form.username, form.password)
     if user is None:
@@ -39,7 +50,11 @@ async def login(form: Annotated[OAuth2PasswordRequestForm, Depends()], db: DbSes
     return Token(access_token=access, refresh_token=refresh)
 
 
-@router.post("/refresh", response_model=Token)
+@router.post(
+    "/refresh",
+    response_model=Token,
+    dependencies=[Depends(per_ip("refresh", limit=30, window_seconds=60))],
+)
 async def refresh(body: RefreshRequest, db: DbSession) -> Token:
     """Trade a refresh token for a new pair. The one you sent stops working."""
     access, refresh_token = await token_service.rotate(db, body.refresh_token)

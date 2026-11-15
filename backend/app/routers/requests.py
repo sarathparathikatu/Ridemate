@@ -1,16 +1,24 @@
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Query
 
 from app.dependencies.auth import CurrentUser
 from app.dependencies.db import DbSession
 from app.schemas.join_request import IncomingRequestOut, MyRequestOut
+from app.schemas.pagination import DEFAULT_LIMIT, MAX_LIMIT, Page
 from app.services import request_service
 
 router = APIRouter(prefix="/requests", tags=["requests"])
 
 
-@router.get("/mine", response_model=list[MyRequestOut])
-async def my_requests(db: DbSession, current_user: CurrentUser) -> list[MyRequestOut]:
-    return [MyRequestOut.build(r) for r in await request_service.list_my_requests(db, current_user)]
+@router.get("/mine", response_model=Page[MyRequestOut])
+async def my_requests(
+    db: DbSession,
+    current_user: CurrentUser,
+    cursor: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
+) -> Page[MyRequestOut]:
+    return await request_service.list_my_requests(db, current_user, cursor, limit)
 
 
 @router.post("/{request_id}/accept", response_model=IncomingRequestOut)

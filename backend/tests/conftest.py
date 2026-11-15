@@ -11,6 +11,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
+from app.core import kv
 from app.db.session import SessionLocal, engine
 from app.main import app
 from app.models import User
@@ -23,8 +24,17 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
+@pytest.fixture(autouse=True)
+def no_rate_limits(monkeypatch):
+    # Tests create many users from one "IP"; test_rate_limits switches this back on.
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "rate_limit_enabled", False)
+
+
 @pytest.fixture
 async def client():
+    kv.reset_memory()  # fresh cache and rate-limit counters for every test
     # ASGITransport calls the app directly: no server, no network, same code paths.
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c

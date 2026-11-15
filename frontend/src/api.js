@@ -109,6 +109,12 @@ async function request(path, options = {}, canRetry = true) {
 
 const post = (path, json) => request(path, { method: "POST", json });
 
+// "?a=1&b=2", skipping empty values (e.g. no cursor on the first page).
+function query(params) {
+  const clean = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "");
+  return clean.length ? `?${new URLSearchParams(clean)}` : "";
+}
+
 export const api = {
   register: (data) => post("/auth/register", data),
   login: (email, password) =>
@@ -116,13 +122,14 @@ export const api = {
   logout: () => post("/auth/logout", { refresh_token: getRefreshToken() ?? "" }),
   me: () => request("/users/me"),
   places: () => request("/places"),
-  searchTrips: (params) => request(`/trips/search?${new URLSearchParams(params)}`),
+  // Lists come back as pages: { items, next_cursor }. Pass next_cursor back for more.
+  searchTrips: (params) => request(`/trips/search${query(params)}`),
   postTrip: (data) => post("/trips", data),
-  myTrips: () => request("/trips/mine"),
+  myTrips: (cursor) => request(`/trips/mine${query({ cursor })}`),
   cancelTrip: (id) => post(`/trips/${id}/cancel`),
   requestToJoin: (id, seats) => post(`/trips/${id}/requests`, { seats }),
   tripRequests: (id) => request(`/trips/${id}/requests`),
-  myRequests: () => request("/requests/mine"),
+  myRequests: (cursor) => request(`/requests/mine${query({ cursor })}`),
   acceptRequest: (id) => post(`/requests/${id}/accept`),
   declineRequest: (id) => post(`/requests/${id}/decline`),
   cancelRequest: (id) => post(`/requests/${id}/cancel`),

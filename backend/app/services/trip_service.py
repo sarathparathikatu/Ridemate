@@ -1,13 +1,15 @@
 from datetime import datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core import kv
 from app.models import JoinRequest, Place, RequestStatus, Trip, TripStatus, User
 from app.realtime import broker
 from app.schemas.common import utc_now
-from app.schemas.trip import RiderOut, TripCreate, TripDetail, TripUpdate, check_seats
+from app.schemas.pagination import DEFAULT_LIMIT, Page, decode_cursor, make_page
+from app.schemas.trip import RiderOut, TripCreate, TripDetail, TripOut, TripUpdate, check_seats
 from app.schemas.user import ContactOut
 from app.services.errors import ConflictError, DomainError, ForbiddenError, NotFoundError
 
@@ -16,6 +18,18 @@ from app.services.errors import ConflictError, DomainError, ForbiddenError, NotF
 WITH_DETAILS = (joinedload(Trip.host), joinedload(Trip.from_place), joinedload(Trip.to_place))
 
 ACTIVE = (TripStatus.OPEN, TripStatus.FULL)
+
+SEARCH_CACHE_SECONDS = 30
+
+
+async def invalidate_search(from_place_id: int) -> None:
+    """Call after any change that could alter search results for this pickup point.
+
+    Every cached search key contains the pickup point's version number. Bumping it makes
+    all old entries unreachable at once (they expire by themselves), so there is no need
+    to find and delete each key.
+    """
+    await kv.incr(f"search-ver:{from_place_id}")
 
 
 async def get_trip(db: AsyncSession, trip_id: int, *, lock: bool = False) -> Trip:
@@ -64,28 +78,38 @@ async def create_trip(db: AsyncSession, host: User, data: TripCreate) -> Trip:
     trip = Trip(host_id=host.id, **data.model_dump())
     db.add(trip)
     await db.commit()
+    await invalidate_search(trip.from_place_id)
     return await get_trip(db, trip.id)
 
 
-async def list_my_trips(db: AsyncSession, user: User) -> list[Trip]:
+async def list_my_trips(
+    db: AsyncSession, user: User, cursor: str | None = None, limit: int = DEFAULT_LIMIT
+) -> Page[TripOut]:
     stmt = (
         select(Trip)
         .options(*WITH_DETAILS)
         .where(Trip.host_id == user.id)
-        .order_by(Trip.depart_at.desc())
-        .limit(50)
+        .order_by(Trip.depart_at.desc(), Trip.id.desc())
+        .limit(limit + 1)
     )
-    return list(await db.scalars(stmt))
+    if cursor:
+        # Keyset pagination: "rows after the last one you saw", not OFFSET n. Stays fast
+        # on page 500 and never skips or repeats rows when new trips are added.
+        stmt = stmt.where(tuple_(Trip.depart_at, Trip.id) < tuple_(*decode_cursor(cursor)))
+    trips = list(await db.scalars(stmt))
+    return make_page(trips, limit, lambda t: (t.depart_at, t.id), TripOut.model_validate)
 
 
-async def search_trips(
+async def _search_page(
     db: AsyncSession,
-    user: User,
     from_place_id: int,
     to_place_id: int,
     at: datetime,
     window_minutes: int,
-) -> list[Trip]:
+    cursor: str | None,
+    limit: int,
+) -> Page[TripOut]:
+    """The database part of search. Nothing user-specific here, so the result is cacheable."""
     window = timedelta(minutes=window_minutes)
     earliest = max(at - window, utc_now() - timedelta(minutes=10))  # never show departed rides
     stmt = (
@@ -95,13 +119,46 @@ async def search_trips(
             Trip.from_place_id == from_place_id,
             Trip.to_place_id == to_place_id,
             Trip.status == TripStatus.OPEN,
-            Trip.host_id != user.id,
             Trip.depart_at.between(earliest, at + window),
         )
-        .order_by(Trip.depart_at)
-        .limit(20)
+        .order_by(Trip.depart_at, Trip.id)
+        .limit(limit + 1)
     )
-    return list(await db.scalars(stmt))
+    if cursor:
+        stmt = stmt.where(tuple_(Trip.depart_at, Trip.id) > tuple_(*decode_cursor(cursor)))
+    trips = list(await db.scalars(stmt))
+    return make_page(trips, limit, lambda t: (t.depart_at, t.id), TripOut.model_validate)
+
+
+async def search_trips(
+    db: AsyncSession,
+    user: User,
+    from_place_id: int,
+    to_place_id: int,
+    at: datetime,
+    window_minutes: int,
+    cursor: str | None = None,
+    limit: int = DEFAULT_LIMIT,
+) -> Page[TripOut]:
+    """Cache-aside: read the cache, on a miss query MySQL and fill the cache.
+
+    When a full train arrives, hundreds of people run the same search within a minute;
+    only the first one reaches MySQL.
+    """
+    at = at.replace(second=0, microsecond=0)  # same-minute searches share one cache entry
+    version = await kv.get(f"search-ver:{from_place_id}") or "0"
+    key = (
+        f"search:{from_place_id}:v{version}:{to_place_id}:{at.isoformat()}"
+        f":{window_minutes}:{limit}:{cursor or ''}"
+    )
+    if (cached := await kv.get(key)) is not None:
+        page = Page[TripOut].model_validate_json(cached)
+    else:
+        page = await _search_page(db, from_place_id, to_place_id, at, window_minutes, cursor, limit)
+        await kv.set(key, page.model_dump_json(), SEARCH_CACHE_SECONDS)
+    # Per-user filtering after the cache, so one cached page serves every rider.
+    page.items = [trip for trip in page.items if trip.host.id != user.id]
+    return page
 
 
 async def get_trip_detail(db: AsyncSession, user: User, trip_id: int) -> TripDetail:
@@ -145,6 +202,7 @@ async def update_trip(db: AsyncSession, user: User, trip_id: int, data: TripUpda
     trip.status = TripStatus.FULL if trip.seats_left == 0 else TripStatus.OPEN
     riders = await _riders_waiting_on(db, trip.id)
     await db.commit()
+    await invalidate_search(trip.from_place_id)
     await broker.publish(
         riders,
         {
@@ -167,6 +225,7 @@ async def cancel_trip(db: AsyncSession, user: User, trip_id: int) -> Trip:
         .values(status=RequestStatus.DECLINED)
     )
     await db.commit()
+    await invalidate_search(trip.from_place_id)
     await broker.publish(
         riders,
         {

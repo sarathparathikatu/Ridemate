@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum, ForeignKey, SmallInteger, String, func, text
+from sqlalchemy import Enum, ForeignKey, Index, SmallInteger, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import MYSQL_TABLE_ARGS, Base, enum_values
@@ -30,7 +30,13 @@ class Trip(Base):
     """A host's ride: "at <from> around <depart_at>, going to <to>, N seats free"."""
 
     __tablename__ = "trips"
-    __table_args__ = MYSQL_TABLE_ARGS
+    __table_args__ = (
+        # Serves the search query: equality columns first (from_place_id, status), the
+        # range column last (depart_at), so MySQL can seek straight to the matching slice
+        # and read it already sorted by depart_at (no filesort). See scripts/explain_search.py.
+        Index("ix_trips_search", "from_place_id", "status", "depart_at"),
+        MYSQL_TABLE_ARGS,
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     host_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))

@@ -41,6 +41,7 @@ export default function FindRide() {
   const [toId, setToId] = useState("");
   const [when, setWhen] = useState(() => toLocalInput(new Date()));
   const [trips, setTrips] = useState(null);
+  const [page, setPage] = useState({ params: null, next: null }); // for "Load more"
   const [messages, setMessages] = useState({}); // trip id -> result of "Request to join"
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,8 +56,23 @@ export default function FindRide() {
     setError("");
     try {
       const params = { from_place_id: pickup, to_place_id: toId, at: fromLocalInput(when), window_minutes: 45 };
-      setTrips(await api.searchTrips(params));
+      const result = await api.searchTrips(params);
+      setTrips(result.items);
+      setPage({ params, next: result.next_cursor });
       setMessages({});
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadMore() {
+    setBusy(true);
+    try {
+      const result = await api.searchTrips({ ...page.params, cursor: page.next });
+      setTrips((current) => [...current, ...result.items]);
+      setPage((p) => ({ ...p, next: result.next_cursor }));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -100,6 +116,11 @@ export default function FindRide() {
       {trips?.map((trip) => (
         <TripCard key={trip.id} trip={trip} message={messages[trip.id]} onJoin={() => join(trip)} />
       ))}
+      {page.next && (
+        <button className="more" onClick={loadMore} disabled={busy}>
+          Load more rides
+        </button>
+      )}
     </>
   );
 }

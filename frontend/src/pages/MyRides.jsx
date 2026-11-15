@@ -148,14 +148,16 @@ function JoinedTrip({ req, onChange }) {
 export default function MyRides() {
   const [hosted, setHosted] = useState(null);
   const [joined, setJoined] = useState(null);
+  const [next, setNext] = useState({ hosted: null, joined: null }); // cursors for "Show older"
   const [version, setVersion] = useState(0);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     try {
       const [trips, requests] = await Promise.all([api.myTrips(), api.myRequests()]);
-      setHosted(trips);
-      setJoined(requests);
+      setHosted(trips.items);
+      setJoined(requests.items);
+      setNext({ hosted: trips.next_cursor, joined: requests.next_cursor });
       setVersion((v) => v + 1);
       setError("");
     } catch (err) {
@@ -167,6 +169,22 @@ export default function MyRides() {
     load();
   }, [load]);
   useLiveEvents(load); // someone requested, accepted, cancelled… show it without Refresh
+
+  async function showOlder(kind) {
+    try {
+      if (kind === "hosted") {
+        const more = await api.myTrips(next.hosted);
+        setHosted((all) => [...all, ...more.items]);
+        setNext((n) => ({ ...n, hosted: more.next_cursor }));
+      } else {
+        const more = await api.myRequests(next.joined);
+        setJoined((all) => [...all, ...more.items]);
+        setNext((n) => ({ ...n, joined: more.next_cursor }));
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  }
 
   if (error) return <p className="error card">{error}</p>;
   if (!hosted || !joined) return <p className="muted center">Loading…</p>;
@@ -182,12 +200,22 @@ export default function MyRides() {
       {hosted.map((trip) => (
         <HostedTrip key={trip.id} trip={trip} version={version} onChange={load} />
       ))}
+      {next.hosted && (
+        <button className="more" onClick={() => showOlder("hosted")}>
+          Show older rides
+        </button>
+      )}
 
       <h2>Rides I asked to join</h2>
       {joined.length === 0 && <p className="muted card">No requests yet. Find a ride to join one.</p>}
       {joined.map((req) => (
         <JoinedTrip key={req.id} req={req} onChange={load} />
       ))}
+      {next.joined && (
+        <button className="more" onClick={() => showOlder("joined")}>
+          Show older requests
+        </button>
+      )}
     </>
   );
 }

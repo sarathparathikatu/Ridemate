@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -8,8 +8,10 @@ from sqlalchemy.orm import joinedload
 from app.models import JoinRequest, RequestStatus, Trip, TripStatus, User
 from app.realtime import broker
 from app.schemas.common import utc_now
+from app.schemas.join_request import MyRequestOut
+from app.schemas.pagination import DEFAULT_LIMIT, Page, decode_cursor, make_page
 from app.services.errors import ConflictError, DomainError, ForbiddenError, NotFoundError
-from app.services.trip_service import WITH_DETAILS, get_trip
+from app.services.trip_service import WITH_DETAILS, get_trip, invalidate_search
 
 WITH_TRIP = joinedload(JoinRequest.trip).options(*WITH_DETAILS)
 
@@ -75,15 +77,22 @@ async def create_request(db: AsyncSession, user: User, trip_id: int, seats: int)
     return await _get_request(db, req.id, WITH_TRIP)
 
 
-async def list_my_requests(db: AsyncSession, user: User) -> list[JoinRequest]:
+async def list_my_requests(
+    db: AsyncSession, user: User, cursor: str | None = None, limit: int = DEFAULT_LIMIT
+) -> Page[MyRequestOut]:
     stmt = (
         select(JoinRequest)
         .options(WITH_TRIP)
         .where(JoinRequest.requester_id == user.id)
-        .order_by(JoinRequest.created_at.desc())
-        .limit(50)
+        .order_by(JoinRequest.created_at.desc(), JoinRequest.id.desc())
+        .limit(limit + 1)
     )
-    return list(await db.scalars(stmt))
+    if cursor:
+        stmt = stmt.where(
+            tuple_(JoinRequest.created_at, JoinRequest.id) < tuple_(*decode_cursor(cursor))
+        )
+    reqs = list(await db.scalars(stmt))
+    return make_page(reqs, limit, lambda r: (r.created_at, r.id), MyRequestOut.build)
 
 
 async def list_trip_requests(db: AsyncSession, user: User, trip_id: int) -> list[JoinRequest]:
@@ -124,6 +133,7 @@ async def accept_request(db: AsyncSession, user: User, request_id: int) -> JoinR
         trip.status = TripStatus.FULL
     req.status = RequestStatus.ACCEPTED
     await db.commit()  # releases the locks; a waiting transaction now sees the new seats
+    await invalidate_search(trip.from_place_id)  # seats left / full status changed
     await broker.publish(
         [req.requester_id],
         {
@@ -173,6 +183,7 @@ async def cancel_request(db: AsyncSession, user: User, request_id: int) -> JoinR
             trip.status = TripStatus.OPEN
     req.status = RequestStatus.CANCELLED
     await db.commit()
+    await invalidate_search(trip.from_place_id)
     await broker.publish(
         [trip.host_id],
         {
