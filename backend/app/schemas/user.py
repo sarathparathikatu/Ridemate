@@ -40,16 +40,22 @@ class UserOut(BaseModel):
     email: EmailStr
     display_name: str
     phone: str | None
+    phone_verified: bool
+    rating_avg: float | None
+    rating_count: int
     created_at: UTCOutput
 
 
 class PersonOut(BaseModel):
-    """How strangers see you: a name to look for at the station, nothing more."""
+    """How strangers see you: a name to look for, and signals that you can be trusted."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     display_name: str
+    phone_verified: bool
+    rating_avg: float | None
+    rating_count: int
 
 
 class ContactOut(PersonOut):

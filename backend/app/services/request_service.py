@@ -10,6 +10,7 @@ from app.realtime import broker
 from app.schemas.common import utc_now
 from app.schemas.join_request import MyRequestOut
 from app.schemas.pagination import DEFAULT_LIMIT, Page, decode_cursor, make_page
+from app.services import safety_service
 from app.services.errors import ConflictError, DomainError, ForbiddenError, NotFoundError
 from app.services.trip_service import WITH_DETAILS, get_trip, invalidate_search
 
@@ -37,6 +38,9 @@ async def create_request(db: AsyncSession, user: User, trip_id: int, seats: int)
     trip = await get_trip(db, trip_id)
     if trip.host_id == user.id:
         raise DomainError("You can't join your own trip")
+    if await safety_service.is_blocked_between(db, user.id, trip.host_id):
+        # Deliberately vague: don't reveal who blocked whom.
+        raise ForbiddenError("You can't join this ride")
     if trip.status != TripStatus.OPEN:
         raise ConflictError("This trip is no longer open")
     if trip.depart_at < utc_now() - timedelta(minutes=10):

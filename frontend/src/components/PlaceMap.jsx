@@ -9,7 +9,9 @@ function FitView({ places, route }) {
   const key = target.map((p) => p.id).join(",");
   useEffect(() => {
     if (target.length) {
-      map.fitBounds(target.map((p) => [p.lat, p.lng]), { padding: route.length === 2 ? [56, 56] : [24, 24] });
+      // A route gets extra room above and below for its two labels.
+      const padding = route.length === 2 ? { paddingTopLeft: [40, 72], paddingBottomRight: [40, 72] } : { padding: [24, 24] };
+      map.fitBounds(target.map((p) => [p.lat, p.lng]), padding);
     }
   }, [map, key]); // eslint-disable-line react-hooks/exhaustive-deps
   return null;

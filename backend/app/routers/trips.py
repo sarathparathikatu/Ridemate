@@ -3,15 +3,16 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import AwareDatetime
 
-from app.dependencies.auth import CurrentUser
+from app.dependencies.auth import CurrentUser, VerifiedUser
 from app.dependencies.db import DbSession
 from app.dependencies.rate_limit import per_user
 from app.models import Trip
 from app.schemas.common import to_utc_naive, utc_now
 from app.schemas.join_request import IncomingRequestOut, JoinRequestCreate, MyRequestOut
 from app.schemas.pagination import DEFAULT_LIMIT, MAX_LIMIT, Page
+from app.schemas.safety import RatingCreate, ShareLinkOut
 from app.schemas.trip import SearchResult, TripCreate, TripDetail, TripOut, TripUpdate
-from app.services import request_service, trip_service
+from app.services import rating_service, request_service, share_service, trip_service
 
 router = APIRouter(prefix="/trips", tags=["trips"])
 
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/trips", tags=["trips"])
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(per_user("post-trip", limit=10, window_seconds=3600))],
 )
-async def post_trip(body: TripCreate, db: DbSession, current_user: CurrentUser) -> Trip:
+async def post_trip(body: TripCreate, db: DbSession, current_user: VerifiedUser) -> Trip:
     return await trip_service.create_trip(db, current_user, body)
 
 
@@ -82,7 +83,7 @@ async def cancel_trip(trip_id: int, db: DbSession, current_user: CurrentUser) ->
     dependencies=[Depends(per_user("join-request", limit=10, window_seconds=60))],
 )
 async def request_to_join(
-    trip_id: int, body: JoinRequestCreate, db: DbSession, current_user: CurrentUser
+    trip_id: int, body: JoinRequestCreate, db: DbSession, current_user: VerifiedUser
 ) -> MyRequestOut:
     req = await request_service.create_request(db, current_user, trip_id, body.seats)
     return MyRequestOut.build(req)
@@ -94,3 +95,22 @@ async def trip_requests(
 ) -> list[IncomingRequestOut]:
     reqs = await request_service.list_trip_requests(db, current_user, trip_id)
     return [IncomingRequestOut.build(r) for r in reqs]
+
+
+@router.post("/{trip_id}/complete", response_model=TripOut)
+async def complete_trip(trip_id: int, db: DbSession, current_user: CurrentUser) -> Trip:
+    """Host marks the ride done, which lets everyone in it rate each other."""
+    return await trip_service.complete_trip(db, current_user, trip_id)
+
+
+@router.post("/{trip_id}/ratings", status_code=status.HTTP_201_CREATED)
+async def rate_co_traveller(
+    trip_id: int, body: RatingCreate, db: DbSession, current_user: CurrentUser
+) -> dict[str, str]:
+    await rating_service.rate(db, current_user, trip_id, body)
+    return {"status": "saved"}
+
+
+@router.post("/{trip_id}/share", response_model=ShareLinkOut, status_code=status.HTTP_201_CREATED)
+async def share_with_family(trip_id: int, db: DbSession, current_user: CurrentUser) -> ShareLinkOut:
+    return await share_service.create_link(db, current_user, trip_id)

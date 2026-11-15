@@ -26,11 +26,26 @@ async def get(key: str) -> str | None:
     return entry[0] if entry else None
 
 
-async def set(key: str, value: str, ttl_seconds: int) -> None:
+async def set(key: str, value: str, ttl_seconds: int | None) -> None:
+    """ttl_seconds=None keeps the key's current expiry (updating without extending it)."""
     if (redis := get_redis()) is not None:
-        await redis.set(key, value, ex=ttl_seconds)
+        if ttl_seconds is None:
+            await redis.set(key, value, keepttl=True)
+        else:
+            await redis.set(key, value, ex=ttl_seconds)
         return
-    _memory[key] = (value, time.monotonic() + ttl_seconds)
+    if ttl_seconds is None:
+        entry = _alive(key)
+        _memory[key] = (value, entry[1] if entry else None)
+    else:
+        _memory[key] = (value, time.monotonic() + ttl_seconds)
+
+
+async def delete(key: str) -> None:
+    if (redis := get_redis()) is not None:
+        await redis.delete(key)
+        return
+    _memory.pop(key, None)
 
 
 async def incr(key: str, ttl_seconds: int | None = None) -> int:

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api.js";
 import PlaceMap from "../components/PlaceMap.jsx";
 import { DEFAULT_STATION, PlaceSelect, usePlaces } from "../components/PlaceSelect.jsx";
+import { TrustBadges } from "../components/Trust.jsx";
 import { VEHICLE_LABEL, formatTime, fromLocalInput, plural, splitFare, toLocalInput } from "../format.js";
 
 function TripCard({ trip, message, onJoin }) {
@@ -24,6 +25,7 @@ function TripCard({ trip, message, onJoin }) {
       <p className="muted">
         Host: {trip.host.display_name} · {VEHICLE_LABEL[trip.vehicle]} · ±{trip.flex_minutes} min
       </p>
+      <TrustBadges person={trip.host} />
       {share && (
         <p className="fare">
           ₹{trip.fare_estimate} ride → about ₹{share} each if you join

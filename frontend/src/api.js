@@ -133,4 +133,15 @@ export const api = {
   acceptRequest: (id) => post(`/requests/${id}/accept`),
   declineRequest: (id) => post(`/requests/${id}/decline`),
   cancelRequest: (id) => post(`/requests/${id}/cancel`),
+  // Trust & safety
+  sendPhoneCode: (phone) => post("/users/me/phone/send-code", { phone }),
+  verifyPhone: (code) => post("/users/me/phone/verify", { code }),
+  completeTrip: (id) => post(`/trips/${id}/complete`),
+  rate: (tripId, rating) => post(`/trips/${tripId}/ratings`, rating),
+  shareTrip: (id) => post(`/trips/${id}/share`),
+  viewShare: (token) => request(`/share/${encodeURIComponent(token)}`),
+  block: (userId) => post(`/users/${userId}/block`),
+  unblock: (userId) => request(`/users/${userId}/block`, { method: "DELETE" }),
+  blocked: () => request("/users/me/blocks"),
+  report: (userId, report) => post(`/users/${userId}/report`, report),
 };

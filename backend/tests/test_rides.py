@@ -32,7 +32,8 @@ async def test_full_ride_flow(client):
     # Host posts a trip. The public view shows a name, never contact details.
     trip = await post_trip(client, host, places)
     assert trip["seats_left"] == 2 and trip["status"] == "open"
-    assert trip["host"] == {"id": trip["host"]["id"], "display_name": "Host"}
+    assert trip["host"]["display_name"] == "Host"
+    assert "email" not in trip["host"] and "phone" not in trip["host"]  # contacts stay private
 
     # Rider finds it; the host doesn't see their own trip in search.
     params = {"from_place_id": places[STATION], "to_place_id": places[KULATHOOR]}

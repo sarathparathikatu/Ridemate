@@ -30,6 +30,9 @@ export function AuthProvider({ children }) {
     setUser(await api.me());
   }, []);
 
+  // After the profile changes on the server (e.g. phone verified), reload it.
+  const refreshUser = useCallback(async () => setUser(await api.me()), []);
+
   const logout = useCallback(async () => {
     await api.logout().catch(() => {}); // revoke the refresh token server-side (best effort)
     setTokens(null);
@@ -37,7 +40,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser }}>{children}</AuthContext.Provider>
   );
 }
 

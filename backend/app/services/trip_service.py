@@ -19,6 +19,7 @@ from app.schemas.trip import (
     check_seats,
 )
 from app.schemas.user import ContactOut
+from app.services import safety_service
 from app.services.errors import ConflictError, DomainError, ForbiddenError, NotFoundError
 
 # A trip is always shown with its host and both places. Loading them in the SAME query
@@ -201,8 +202,10 @@ async def search_trips(
     else:
         page = await _search_page(db, from_place_id, to_place_id, at, window_minutes, cursor, limit)
         await kv.set(key, page.model_dump_json(), SEARCH_CACHE_SECONDS)
-    # Per-user filtering after the cache, so one cached page serves every rider.
-    page.items = [trip for trip in page.items if trip.host.id != user.id]
+    # Per-user filtering after the cache, so one cached page serves every rider:
+    # not your own rides, and nobody you blocked or who blocked you.
+    hidden = await safety_service.hidden_user_ids(db, user.id) | {user.id}
+    page.items = [trip for trip in page.items if trip.host.id not in hidden]
     return page
 
 
@@ -277,6 +280,41 @@ async def cancel_trip(db: AsyncSession, user: User, trip_id: int) -> Trip:
             "type": "trip.cancelled",
             "trip_id": trip.id,
             "message": f"{user.display_name} cancelled the ride to {trip.to_place.name}",
+        },
+    )
+    return await get_trip(db, trip.id)
+
+
+async def member_ids(db: AsyncSession, trip: Trip) -> set[int]:
+    """The host plus everyone whose request was accepted: the people who share the ride."""
+    riders = await db.scalars(
+        select(JoinRequest.requester_id).where(
+            JoinRequest.trip_id == trip.id, JoinRequest.status == RequestStatus.ACCEPTED
+        )
+    )
+    return {trip.host_id, *riders}
+
+
+async def complete_trip(db: AsyncSession, user: User, trip_id: int) -> Trip:
+    """Host marks the ride done; this is what unlocks ratings."""
+    trip = await _get_own_trip(db, user, trip_id)
+    if trip.depart_at > utc_now() + timedelta(minutes=30):
+        raise ConflictError("You can mark a ride completed once it has started")
+    riders = (await member_ids(db, trip)) - {user.id}
+    trip.status = TripStatus.COMPLETED
+    await db.execute(
+        update(JoinRequest)
+        .where(JoinRequest.trip_id == trip.id, JoinRequest.status == RequestStatus.PENDING)
+        .values(status=RequestStatus.DECLINED)
+    )
+    await db.commit()
+    await invalidate_search(trip.from_place_id)
+    await broker.publish(
+        list(riders),
+        {
+            "type": "trip.completed",
+            "trip_id": trip.id,
+            "message": "Ride completed. Rate your co-travellers to help others.",
         },
     )
     return await get_trip(db, trip.id)

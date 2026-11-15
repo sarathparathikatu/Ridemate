@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
 import Contact from "../components/Contact.jsx";
+import { RatePerson, SafetyActions, ShareButton } from "../components/Trust.jsx";
 import { VEHICLE_LABEL, formatTime, plural, splitFare } from "../format.js";
 import { NotificationPrompt, useLiveEvents } from "../live.jsx";
 
 const isActive = (trip) => trip.status === "open" || trip.status === "full";
+// The host can close the ride from 30 minutes before departure (the API enforces it too).
+const hasStarted = (trip) => new Date(trip.depart_at) <= new Date(Date.now() + 30 * 60000);
 
 function StatusPill({ status }) {
   return <span className={`pill ${status}`}>{status}</span>;
@@ -21,9 +24,10 @@ function HostedTrip({ trip, version, onChange }) {
   );
   // `version` changes on every Refresh: React keeps this card mounted (same key), so
   // without it the card would never re-fetch and new requests would stay invisible.
+  const completed = trip.status === "completed";
   useEffect(() => {
-    if (active) loadRequests();
-  }, [active, loadRequests, version]);
+    if (active || completed) loadRequests();
+  }, [active, completed, loadRequests, version]);
 
   async function act(action) {
     setError("");
@@ -55,9 +59,16 @@ function HostedTrip({ trip, version, onChange }) {
       {accepted.length > 0 && (
         <div className="people">
           <h3>Riding with you</h3>
-          {accepted.map((r) => (
-            <Contact key={r.id} person={r.requester_contact} extra={plural(r.seats, "seat")} />
-          ))}
+          {accepted.map((r) =>
+            completed ? (
+              <RatePerson key={r.id} tripId={trip.id} person={r.requester_contact} />
+            ) : (
+              <div key={r.id}>
+                <Contact person={r.requester_contact} extra={plural(r.seats, "seat")} />
+                <SafetyActions userId={r.requester_contact.id} tripId={trip.id} />
+              </div>
+            ),
+          )}
         </div>
       )}
 
@@ -85,12 +96,20 @@ function HostedTrip({ trip, version, onChange }) {
       {active && requests.length === 0 && <p className="muted">No requests yet.</p>}
       {error && <p className="error">{error}</p>}
       {active && (
-        <button
-          className="danger small"
-          onClick={() => window.confirm("Cancel this ride?") && act(() => api.cancelTrip(trip.id))}
-        >
-          Cancel ride
-        </button>
+        <div className="actions">
+          <ShareButton tripId={trip.id} />
+          {hasStarted(trip) && (
+            <button className="primary small" onClick={() => act(() => api.completeTrip(trip.id))}>
+              Mark completed
+            </button>
+          )}
+          <button
+            className="danger small"
+            onClick={() => window.confirm("Cancel this ride?") && act(() => api.cancelTrip(trip.id))}
+          >
+            Cancel ride
+          </button>
+        </div>
       )}
     </article>
   );
@@ -128,11 +147,18 @@ function JoinedTrip({ req, onChange }) {
       {req.status === "pending" && isActive(trip) && (
         <p className="muted">Waiting for {trip.host.display_name} to accept.</p>
       )}
-      {req.host_contact && (
+      {req.host_contact && trip.status === "completed" && (
+        <div className="people">
+          <RatePerson tripId={trip.id} person={req.host_contact} />
+        </div>
+      )}
+      {req.host_contact && trip.status !== "completed" && (
         <div className="people">
           <h3>Your host</h3>
           <Contact person={req.host_contact} />
           {share && req.status === "accepted" && <p className="fare">Your share: about ₹{share}</p>}
+          <SafetyActions userId={req.host_contact.id} tripId={trip.id} />
+          {isActive(trip) && <ShareButton tripId={trip.id} />}
         </div>
       )}
       {error && <p className="error">{error}</p>}

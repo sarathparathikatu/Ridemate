@@ -26,6 +26,13 @@ class Settings(BaseSettings):
 
     rate_limit_enabled: bool = True
 
+    # Phone verification. "console" prints codes to the server log instead of texting them
+    # (no SMS account needed while developing). OTP_DEV_ECHO also returns the code in the
+    # API response; both must be off in production.
+    sms_provider: str = "console"
+    otp_dev_echo: bool = True
+    require_verified_phone: bool = False  # true in production: post/join only when verified
+
     # Browser origins allowed to call the API (the Vite dev server by default).
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 

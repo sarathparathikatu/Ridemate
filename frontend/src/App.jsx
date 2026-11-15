@@ -5,7 +5,9 @@ import FindRide from "./pages/FindRide.jsx";
 import Login from "./pages/Login.jsx";
 import MyRides from "./pages/MyRides.jsx";
 import OfferRide from "./pages/OfferRide.jsx";
+import Profile from "./pages/Profile.jsx";
 import Register from "./pages/Register.jsx";
+import SharedRide from "./pages/SharedRide.jsx";
 
 // Client-side guard for UX only. The real protection is the API's get_current_user:
 // anyone can bypass React code, nobody can bypass the server.
@@ -38,9 +40,11 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/share/:token" element={<SharedRide />} />
           <Route path="/" element={<RequireAuth><FindRide /></RequireAuth>} />
           <Route path="/offer" element={<RequireAuth><OfferRide /></RequireAuth>} />
           <Route path="/rides" element={<RequireAuth><MyRides /></RequireAuth>} />
+          <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -50,6 +54,7 @@ export default function App() {
           <NavLink to="/" end>Find a ride</NavLink>
           <NavLink to="/offer">Offer a ride</NavLink>
           <NavLink to="/rides">My rides</NavLink>
+          <NavLink to="/profile">Profile</NavLink>
         </nav>
       )}
     </div>
