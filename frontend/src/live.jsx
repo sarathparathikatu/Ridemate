@@ -2,7 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { API_URL, getToken, refreshTokens } from "./api.js";
 import { useAuth } from "./auth.jsx";
 
-const WS_URL = `${API_URL.replace(/^http/, "ws")}/ws`;
+// API_URL is either absolute (http://localhost:8000, development) or a same-origin path
+// (/api, behind nginx in production). WebSockets need an absolute ws:// or wss:// URL.
+const WS_URL = API_URL.startsWith("/")
+  ? `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}${API_URL}/ws`
+  : `${API_URL.replace(/^http/, "ws")}/ws`;
 const LiveContext = createContext({ connected: false });
 
 function showSystemNotification(event) {

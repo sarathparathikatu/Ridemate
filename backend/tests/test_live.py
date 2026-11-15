@@ -1,7 +1,6 @@
 import asyncio
 
 import anyio
-import fakeredis
 import pytest
 from httpx import AsyncClient
 from httpx_ws import WebSocketDisconnect, aconnect_ws
@@ -10,7 +9,7 @@ from httpx_ws.transport import ASGIWebSocketTransport
 from app.core.redis import use_redis
 from app.main import app
 from app.realtime.broker import relay_forever
-from tests.conftest import make_user, place_ids
+from tests.conftest import make_test_redis, make_user, place_ids
 from tests.test_rides import post_trip
 
 pytestmark = pytest.mark.anyio
@@ -64,7 +63,7 @@ async def test_host_and_rider_get_live_events(ws_client):
 
 async def test_events_travel_through_redis(ws_client):
     """With Redis, the publisher and the socket could be on different server processes."""
-    use_redis(fakeredis.FakeAsyncRedis(decode_responses=True))
+    use_redis(await make_test_redis())
     relay = asyncio.create_task(relay_forever())
     try:
         await asyncio.sleep(0.1)  # let the relay subscribe

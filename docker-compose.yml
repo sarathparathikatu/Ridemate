@@ -1,0 +1,68 @@
+# The whole RideMate stack on one machine.
+#   cp .env.example .env   (then set the secrets)
+#   docker compose up --build
+#   open http://localhost:8080
+services:
+  mysql:
+    image: mysql:8.4
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ridemate
+      MYSQL_USER: ridemate
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
+    volumes:
+      - mysql-data:/var/lib/mysql  # data survives container restarts and upgrades
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 5s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Runs once and exits: database migrations happen exactly once per deploy, before the
+  # API starts (several API copies running them at the same time could collide).
+  migrate:
+    build: ./backend
+    command: ["alembic", "upgrade", "head"]
+    environment: &backend-env
+      DATABASE_URL: mysql+aiomysql://ridemate:${MYSQL_PASSWORD}@mysql:3306/ridemate?charset=utf8mb4
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
+      REDIS_URL: redis://redis:6379/0
+      OTP_DEV_ECHO: ${OTP_DEV_ECHO:-true}
+      REQUIRE_VERIFIED_PHONE: ${REQUIRE_VERIFIED_PHONE:-false}
+      CORS_ORIGINS: '["http://localhost:8080"]'
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  api:
+    build: ./backend
+    environment: *backend-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: /api
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  mysql-data:

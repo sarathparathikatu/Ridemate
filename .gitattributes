@@ -1,0 +1,5 @@
+# Store and check out text files with LF line endings on every OS. Windows-style CRLF
+# breaks shell scripts and some configs inside Linux containers.
+* text=auto eol=lf
+*.png binary
+*.pdf binary

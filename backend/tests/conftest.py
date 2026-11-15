@@ -4,10 +4,13 @@ Every test user's email starts with "rmtest-", and all of them are deleted after
 test (ON DELETE CASCADE removes their trips and requests too).
 """
 
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import fakeredis
 import pytest
+import redis.asyncio as redis_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
@@ -59,3 +62,13 @@ async def place_ids(client: AsyncClient) -> dict[str, int]:
 
 def minutes_from_now(minutes: int) -> str:
     return (datetime.now(UTC) + timedelta(minutes=minutes)).isoformat()
+
+
+async def make_test_redis():
+    """Real Redis when TEST_REDIS_URL is set (CI runs a Redis server), else an in-memory fake."""
+    url = os.environ.get("TEST_REDIS_URL")
+    if not url:
+        return fakeredis.FakeAsyncRedis(decode_responses=True)
+    client = redis_asyncio.from_url(url, decode_responses=True)
+    await client.flushdb()  # TEST_REDIS_URL points at a database number used only by tests
+    return client

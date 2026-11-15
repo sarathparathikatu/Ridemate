@@ -1,6 +1,6 @@
 import pytest
 
-from tests.conftest import make_user, minutes_from_now, place_ids
+from tests.conftest import make_test_redis, make_user, minutes_from_now, place_ids
 from tests.test_rides import KULATHOOR, STATION, post_trip
 
 pytestmark = pytest.mark.anyio
@@ -45,8 +45,6 @@ async def test_cached_search_is_invalidated_when_a_trip_fills_up(client):
 
 @pytest.mark.parametrize("backend", ["memory", "redis"])
 async def test_login_is_rate_limited_per_ip(client, monkeypatch, backend):
-    import fakeredis
-
     from app.core.config import get_settings
     from app.core.redis import use_redis
 
@@ -55,7 +53,7 @@ async def test_login_is_rate_limited_per_ip(client, monkeypatch, backend):
     # minute boundary would land in two windows and never hit the limit (flaky test).
     monkeypatch.setattr("app.dependencies.rate_limit._clock", lambda: 1_800_000_030.0)
     if backend == "redis":
-        use_redis(fakeredis.FakeAsyncRedis(decode_responses=True))
+        use_redis(await make_test_redis())
     try:
         wrong = {"username": "nobody@example.com", "password": "wrong-password"}
         codes = [(await client.post("/auth/login", data=wrong)).status_code for _ in range(11)]
