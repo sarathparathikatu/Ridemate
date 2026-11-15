@@ -304,6 +304,51 @@ a {
   align-items: center;
 }
 
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.live-dot.on {
+  background: var(--brand);
+  box-shadow: 0 0 0 3px var(--open);
+}
+
+.toasts {
+  position: fixed;
+  top: 12px;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  width: 100%;
+  max-width: 488px;
+  text-align: left;
+  background: var(--text);
+  color: var(--bg);
+  border: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.prompt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.9rem;
+}
+
 .tabbar {
   position: fixed;
   bottom: 0;

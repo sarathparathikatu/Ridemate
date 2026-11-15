@@ -1,5 +1,6 @@
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth.jsx";
+import { useLive } from "./live.jsx";
 import FindRide from "./pages/FindRide.jsx";
 import Login from "./pages/Login.jsx";
 import MyRides from "./pages/MyRides.jsx";
@@ -16,6 +17,7 @@ function RequireAuth({ children }) {
 
 export default function App() {
   const { user, logout } = useAuth();
+  const { connected } = useLive();
 
   return (
     <div className="app">
@@ -23,6 +25,7 @@ export default function App() {
         <span className="brand">RideMate</span>
         {user && (
           <span className="who">
+            <span className={`live-dot ${connected ? "on" : ""}`} title={connected ? "Live" : "Reconnecting…"} />
             {user.display_name}
             <button className="link" onClick={logout}>
               Log out

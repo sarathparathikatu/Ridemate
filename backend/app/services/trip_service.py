@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.models import JoinRequest, Place, RequestStatus, Trip, TripStatus, User
+from app.realtime import broker
 from app.schemas.common import utc_now
 from app.schemas.trip import RiderOut, TripCreate, TripDetail, TripUpdate, check_seats
 from app.schemas.user import ContactOut
@@ -32,6 +33,18 @@ async def get_trip(db: AsyncSession, trip_id: int, *, lock: bool = False) -> Tri
     if trip is None:
         raise NotFoundError("Trip not found")
     return trip
+
+
+async def _riders_waiting_on(db: AsyncSession, trip_id: int) -> list[int]:
+    """Users with a pending or accepted request: the people to notify about changes."""
+    return list(
+        await db.scalars(
+            select(JoinRequest.requester_id).where(
+                JoinRequest.trip_id == trip_id,
+                JoinRequest.status.in_((RequestStatus.PENDING, RequestStatus.ACCEPTED)),
+            )
+        )
+    )
 
 
 async def _get_own_trip(db: AsyncSession, user: User, trip_id: int) -> Trip:
@@ -130,12 +143,22 @@ async def update_trip(db: AsyncSession, user: User, trip_id: int, data: TripUpda
     for field, value in changes.items():
         setattr(trip, field, value)
     trip.status = TripStatus.FULL if trip.seats_left == 0 else TripStatus.OPEN
+    riders = await _riders_waiting_on(db, trip.id)
     await db.commit()
+    await broker.publish(
+        riders,
+        {
+            "type": "trip.updated",
+            "trip_id": trip.id,
+            "message": f"{user.display_name} changed the details of your ride",
+        },
+    )
     return await get_trip(db, trip.id)
 
 
 async def cancel_trip(db: AsyncSession, user: User, trip_id: int) -> Trip:
     trip = await _get_own_trip(db, user, trip_id)
+    riders = await _riders_waiting_on(db, trip.id)
     trip.status = TripStatus.CANCELLED
     # One UPDATE statement for all pending requests (Core-style), no objects loaded.
     await db.execute(
@@ -144,4 +167,12 @@ async def cancel_trip(db: AsyncSession, user: User, trip_id: int) -> Trip:
         .values(status=RequestStatus.DECLINED)
     )
     await db.commit()
+    await broker.publish(
+        riders,
+        {
+            "type": "trip.cancelled",
+            "trip_id": trip.id,
+            "message": f"{user.display_name} cancelled the ride to {trip.to_place.name}",
+        },
+    )
     return await get_trip(db, trip.id)

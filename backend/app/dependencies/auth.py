@@ -5,7 +5,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
+from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models import User
 
@@ -24,17 +24,8 @@ async def get_current_user(
         "Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    settings = get_settings()
     try:
-        # Checks the signature AND expiry. algorithms is an explicit allow-list, so a
-        # token claiming a different algorithm (e.g. "none") is rejected.
-        payload = jwt.decode(
-            token,
-            settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
-            options={"require": ["sub", "exp"]},
-        )
-        user_id = int(payload["sub"])
+        user_id = decode_access_token(token)
     except (jwt.InvalidTokenError, ValueError):
         raise credentials_error from None
 

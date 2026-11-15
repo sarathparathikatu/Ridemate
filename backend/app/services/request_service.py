@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.models import JoinRequest, RequestStatus, Trip, TripStatus, User
+from app.realtime import broker
 from app.schemas.common import utc_now
 from app.services.errors import ConflictError, DomainError, ForbiddenError, NotFoundError
 from app.services.trip_service import WITH_DETAILS, get_trip
@@ -62,6 +63,15 @@ async def create_request(db: AsyncSession, user: User, trip_id: int, seats: int)
         # index lets exactly one through.
         await db.rollback()
         raise ConflictError("You already requested this trip") from None
+    await broker.publish(
+        [trip.host_id],
+        {
+            "type": "request.created",
+            "trip_id": trip.id,
+            "request_id": req.id,
+            "message": f"{user.display_name} wants to join your ride",
+        },
+    )
     return await _get_request(db, req.id, WITH_TRIP)
 
 
@@ -114,6 +124,15 @@ async def accept_request(db: AsyncSession, user: User, request_id: int) -> JoinR
         trip.status = TripStatus.FULL
     req.status = RequestStatus.ACCEPTED
     await db.commit()  # releases the locks; a waiting transaction now sees the new seats
+    await broker.publish(
+        [req.requester_id],
+        {
+            "type": "request.accepted",
+            "trip_id": trip.id,
+            "request_id": req.id,
+            "message": f"{user.display_name} accepted your request. Contact details are now shared.",
+        },
+    )
     return await _get_request(db, request_id, joinedload(JoinRequest.requester))
 
 
@@ -127,6 +146,15 @@ async def decline_request(db: AsyncSession, user: User, request_id: int) -> Join
         raise ConflictError(f"Request is already {req.status}")
     req.status = RequestStatus.DECLINED
     await db.commit()
+    await broker.publish(
+        [req.requester_id],
+        {
+            "type": "request.declined",
+            "trip_id": trip.id,
+            "request_id": req.id,
+            "message": f"{user.display_name} declined your request",
+        },
+    )
     return await _get_request(db, request_id, joinedload(JoinRequest.requester))
 
 
@@ -145,4 +173,13 @@ async def cancel_request(db: AsyncSession, user: User, request_id: int) -> JoinR
             trip.status = TripStatus.OPEN
     req.status = RequestStatus.CANCELLED
     await db.commit()
+    await broker.publish(
+        [trip.host_id],
+        {
+            "type": "request.cancelled",
+            "trip_id": trip.id,
+            "request_id": req.id,
+            "message": f"{user.display_name} withdrew from your ride",
+        },
+    )
     return await _get_request(db, request_id, WITH_TRIP)

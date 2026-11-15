@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -8,14 +10,22 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.redis import get_redis
 from app.db.session import engine, get_db
-from app.routers import auth, places, requests, trips, users
+from app.realtime.broker import relay_forever
+from app.routers import auth, places, requests, trips, users, ws
 from app.services.errors import DomainError
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    relay = asyncio.create_task(relay_forever())  # Redis events -> this process's sockets
     yield
+    relay.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await relay
+    if (redis := get_redis()) is not None:
+        await redis.aclose()
     await engine.dispose()  # close pooled MySQL connections on shutdown
 
 
@@ -43,6 +53,7 @@ app.include_router(users.router)
 app.include_router(places.router)
 app.include_router(trips.router)
 app.include_router(requests.router)
+app.include_router(ws.router)
 
 
 @app.get("/health")

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { api, getToken, setToken } from "./api.js";
+import { api, getToken, setTokens } from "./api.js";
 
 // Context = app-wide state any component can read without passing props down every level.
 const AuthContext = createContext(null);
@@ -14,11 +14,11 @@ export function AuthProvider({ children }) {
     api
       .me()
       .then(setUser)
-      .catch(() => setToken(null))
+      .catch(() => setTokens(null))
       .finally(() => setLoading(false));
   }, []);
 
-  // api.js fires this when any call gets a 401 (e.g. the token expired).
+  // api.js fires this when a 401 can't be fixed by refreshing (the login really ended).
   useEffect(() => {
     const onLogout = () => setUser(null);
     window.addEventListener("ridemate:logout", onLogout);
@@ -26,13 +26,13 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = useCallback(async (email, password) => {
-    const { access_token } = await api.login(email, password);
-    setToken(access_token);
+    setTokens(await api.login(email, password));
     setUser(await api.me());
   }, []);
 
-  const logout = useCallback(() => {
-    setToken(null);
+  const logout = useCallback(async () => {
+    await api.logout().catch(() => {}); // revoke the refresh token server-side (best effort)
+    setTokens(null);
     setUser(null);
   }, []);
 

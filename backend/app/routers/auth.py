@@ -1,23 +1,21 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import create_access_token
-from app.db.session import get_db
+from app.dependencies.db import DbSession
 from app.models import User
-from app.schemas.auth import Token
+from app.schemas.auth import RefreshRequest, Token
 from app.schemas.user import UserCreate, UserOut
-from app.services import user_service
+from app.services import token_service, user_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 # response_model=UserOut acts as a filter: even though we return the full User object,
-# only id/email/created_at go out. hashed_password can never leak by accident.
+# only the public profile fields go out. hashed_password can never leak by accident.
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-async def register(body: UserCreate, db: Annotated[AsyncSession, Depends(get_db)]) -> User:
+async def register(body: UserCreate, db: DbSession) -> User:
     try:
         return await user_service.create_user(db, body)
     except user_service.EmailAlreadyRegisteredError:
@@ -26,12 +24,9 @@ async def register(body: UserCreate, db: Annotated[AsyncSession, Depends(get_db)
 
 # OAuth2PasswordRequestForm reads form fields "username" + "password" (OAuth2 standard).
 # We treat "username" as the email. Following the standard makes Swagger's
-# "Authorize" button work out of the box (used in the next stage).
+# "Authorize" button work out of the box.
 @router.post("/login", response_model=Token)
-async def login(
-    form: Annotated[OAuth2PasswordRequestForm, Depends()],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> Token:
+async def login(form: Annotated[OAuth2PasswordRequestForm, Depends()], db: DbSession) -> Token:
     user = await user_service.authenticate_user(db, form.username, form.password)
     if user is None:
         # Same message for "no such email" and "wrong password": don't reveal which emails exist.
@@ -40,4 +35,19 @@ async def login(
             "Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return Token(access_token=create_access_token(user.id))
+    access, refresh = await token_service.issue_tokens(db, user.id)
+    return Token(access_token=access, refresh_token=refresh)
+
+
+@router.post("/refresh", response_model=Token)
+async def refresh(body: RefreshRequest, db: DbSession) -> Token:
+    """Trade a refresh token for a new pair. The one you sent stops working."""
+    access, refresh_token = await token_service.rotate(db, body.refresh_token)
+    return Token(access_token=access, refresh_token=refresh_token)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(body: RefreshRequest, db: DbSession) -> Response:
+    # The access token still works until it expires (max 30 min): JWTs are stateless.
+    await token_service.revoke(db, body.refresh_token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

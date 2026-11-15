@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
 import Contact from "../components/Contact.jsx";
 import { VEHICLE_LABEL, formatTime, plural, splitFare } from "../format.js";
+import { NotificationPrompt, useLiveEvents } from "../live.jsx";
 
 const isActive = (trip) => trip.status === "open" || trip.status === "full";
 
@@ -165,12 +166,14 @@ export default function MyRides() {
   useEffect(() => {
     load();
   }, [load]);
+  useLiveEvents(load); // someone requested, accepted, cancelled… show it without Refresh
 
   if (error) return <p className="error card">{error}</p>;
   if (!hosted || !joined) return <p className="muted center">Loading…</p>;
 
   return (
     <>
+      <NotificationPrompt />
       <div className="section-head">
         <h2>Rides I'm hosting</h2>
         <button className="small" onClick={load}>Refresh</button>
