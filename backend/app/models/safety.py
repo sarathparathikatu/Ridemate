@@ -2,11 +2,16 @@
 
 import enum
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum, ForeignKey, SmallInteger, String, UniqueConstraint, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Enum, ForeignKey, Index, SmallInteger, String, UniqueConstraint, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import MYSQL_TABLE_ARGS, Base, enum_values
+
+if TYPE_CHECKING:
+    from app.models.trip import Trip
+    from app.models.user import User
 
 
 class Rating(Base):
@@ -38,11 +43,23 @@ class ReportStatus(enum.StrEnum):
     REVIEWED = "reviewed"
 
 
+class ReportResolution(enum.StrEnum):
+    """What the admin decided."""
+
+    DISMISSED = "dismissed"  # no action needed
+    SUSPENDED = "suspended"  # the reported account was suspended
+
+
 class Report(Base):
     """A user reporting another user. Reviewed by a person, never acted on automatically."""
 
     __tablename__ = "reports"
-    __table_args__ = MYSQL_TABLE_ARGS
+    __table_args__ = (
+        # The admin screen lists "open reports, newest first": status (equality) first,
+        # created_at (the sort) second, so MySQL reads them straight from the index.
+        Index("ix_reports_status_created", "status", "created_at"),
+        MYSQL_TABLE_ARGS,
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     reporter_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
@@ -56,6 +73,19 @@ class Report(Base):
         server_default="open",
     )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    # The audit trail: who decided what, when, and why. Moderation must be traceable.
+    resolution: Mapped[ReportResolution | None] = mapped_column(
+        Enum(ReportResolution, values_callable=enum_values)
+    )
+    admin_note: Mapped[str | None] = mapped_column(String(500))
+    reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    reviewed_at: Mapped[datetime | None]
+
+    # Three foreign keys point at users, so each relationship says which one it follows.
+    reporter: Mapped["User"] = relationship(foreign_keys=[reporter_id], lazy="raise")
+    reported: Mapped["User"] = relationship(foreign_keys=[reported_id], lazy="raise")
+    reviewer: Mapped["User | None"] = relationship(foreign_keys=[reviewed_by], lazy="raise")
+    trip: Mapped["Trip | None"] = relationship(lazy="raise")
 
 
 class Block(Base):

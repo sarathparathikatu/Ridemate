@@ -999,9 +999,11 @@ dependencies = [
     { name = "aiomysql" },
     { name = "alembic" },
     { name = "bcrypt" },
+    { name = "certifi" },
     { name = "cryptography" },
     { name = "email-validator" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
     { name = "pymysql" },
@@ -1014,7 +1016,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "fakeredis" },
-    { name = "httpx" },
     { name = "httpx-ws" },
     { name = "pytest" },
 ]
@@ -1024,9 +1025,11 @@ requires-dist = [
     { name = "aiomysql", specifier = ">=0.2.0" },
     { name = "alembic", specifier = ">=1.20.1" },
     { name = "bcrypt", specifier = ">=5.0.0" },
+    { name = "certifi", specifier = ">=2026.10.23" },
     { name = "cryptography", specifier = ">=42" },
     { name = "email-validator", specifier = ">=2.3.0" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "pydantic-settings", specifier = ">=2.4" },
     { name = "pyjwt", specifier = ">=2.15.1" },
     { name = "pymysql", specifier = ">=1.1" },
@@ -1039,7 +1042,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "fakeredis", specifier = ">=2.40.0" },
-    { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx-ws", specifier = ">=0.10.0" },
     { name = "pytest", specifier = ">=9.2.0" },
 ]

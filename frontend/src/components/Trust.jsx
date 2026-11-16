@@ -88,7 +88,7 @@ export function RatePerson({ tripId, person }) {
   );
 }
 
-const REASONS = {
+export const REASONS = {
   no_show: "Didn't show up",
   unsafe: "Felt unsafe",
   harassment: "Harassment",

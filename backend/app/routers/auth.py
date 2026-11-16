@@ -46,6 +46,12 @@ async def login(form: Annotated[OAuth2PasswordRequestForm, Depends()], db: DbSes
             "Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if user.is_suspended:
+        # Said only after the password was right, so strangers can't probe account status.
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "This account has been suspended. Contact support if you think this is a mistake.",
+        )
     access, refresh = await token_service.issue_tokens(db, user.id)
     return Token(access_token=access, refresh_token=refresh)
 

@@ -919,6 +919,76 @@ button.more {
   animation: spin 1s linear infinite;
 }
 
+/* "2.1 km · about 4 min by road" under the route box. */
+.route-facts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: -6px;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+/* Address search: a box, a button, and the matches underneath. */
+.place-search {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scroll-margin-top: 84px; /* when scrolled into view, stop below the floating header */
+}
+
+.place-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-results {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  background: var(--surface-2);
+}
+
+.search-result,
+.search-result:hover {
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: transparent;
+  text-align: left;
+}
+
+.search-result:hover,
+.search-result:focus-visible {
+  background: var(--surface);
+}
+
+.search-result-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.search-result-text strong {
+  font-weight: 800;
+}
+
+.search-result-text span {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ------------------------------------------------------------------ ride options (search results) */
 
 .options {
@@ -1484,6 +1554,61 @@ button.more {
 .tabs .count-badge {
   background: var(--lime);
   color: var(--ink);
+}
+
+.tabs.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* ------------------------------------------------------------------ admin */
+
+.report-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.report-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.report-quote {
+  padding: 12px 14px;
+  border-left: 4px solid var(--text);
+  border-radius: 0 12px 12px 0;
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.report-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+button.danger-solid,
+button.danger-solid:hover {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  button.danger-solid,
+  button.danger-solid:hover {
+    color: #0b0b0c;
+  }
 }
 
 .column {
@@ -2133,6 +2258,13 @@ button.more {
   font-weight: 600;
 }
 
+.admin-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+}
+
 /* ------------------------------------------------------------------ animations */
 
 @keyframes pulse {
@@ -2333,8 +2465,24 @@ button.more {
   }
 
   /* Activity: both lists side by side, no tabs needed. */
-  .tabs {
+  .tabs.phone-only {
     display: none;
+  }
+
+  .tabs.three {
+    max-width: 520px;
+  }
+
+  /* Admin: report cards in columns. */
+  .admin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 16px;
+    align-items: start;
+  }
+
+  .admin-grid .card {
+    margin-bottom: 0;
   }
 
   .columns {

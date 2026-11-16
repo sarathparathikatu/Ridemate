@@ -394,6 +394,74 @@ To make a hot read cheap (a rating next to every search result) at the cost of k
 copy in sync on writes. Do it when reads vastly outnumber writes, and update the copy
 atomically in the same transaction.
 
+### 6.1 Admins: roles, moderation and suspension
+
+Reports are only useful if someone reads them. `backend/app/services/admin_service.py`,
+`backend/app/routers/admin.py`, `frontend/src/pages/Admin.jsx`.
+
+| Idea | Where | Why |
+|---|---|---|
+| A role in the database | `users.is_admin` | Read on every request (`get_admin_user` in `dependencies/auth.py`), not stored in the token, so removing it works at once |
+| Protect the router, not each endpoint | `APIRouter(..., dependencies=[Depends(get_admin_user)])` | An endpoint added later is admin-only by default ("secure by default") |
+| No API to become an admin | `backend/app/cli.py` (`python -m app.cli make-admin EMAIL`) | Only someone who can already reach the server can grant it; no endpoint bug can promote a stranger |
+| An audit trail | `reports.resolution`, `reviewed_by`, `reviewed_at`, `admin_note` | Moderation must be traceable: who decided what, when and why |
+| Suspension takes effect immediately | `get_current_user` rejects a suspended user; refresh tokens are revoked | A JWT can't be recalled, so the database check on each request is what stops a valid token |
+| Suspension reuses the normal rules | `_leave_all_rides` calls `cancel_trip` / `cancel_request` | Seats are freed under the same locks, and the others get the usual live alerts |
+| Hiding a page is not security | `RequireAuth admin` in `App.jsx` | The Admin tab is hidden from non-admins as a courtesy; the API refuses them regardless |
+
+Authentication answers "who are you?" (401 when it fails). Authorization answers "are you
+allowed?" (403 when it fails). `test_admin.py` checks both: no token gives 401, an ordinary
+user gets 403.
+
+**Interview:** *"How do you revoke access when you use JWTs?"*
+A JWT stays valid until it expires, so: keep access tokens short-lived, revoke the refresh
+tokens, and for things that must stop immediately (a suspension) check the database on each
+request. That costs one indexed lookup, which this app does anyway to load the user.
+
+**Interview:** *"Where do you check permissions?"*
+On the server, at the lowest common point (a dependency on the router), and again in the
+service for rules about specific objects ("only the host can cancel"). The frontend hides
+what you can't use, but never decides.
+
+---
+
+## Part 6b — Calling outside services (address search and road routes)
+
+`backend/app/services/geo_service.py`, `backend/app/routers/geo.py`,
+`frontend/src/useRoadRoute.js`, `PlaceSearch` in `frontend/src/components/LocationPicker.jsx`.
+
+Typing "Mavoor Road" has to become coordinates (**geocoding**), and a line that follows the
+streets needs a **routing** service. Both come from OpenStreetMap projects (Nominatim, OSRM).
+The browser never calls them: it asks our API, and the API asks them (a **backend proxy**).
+
+| What the proxy buys | How |
+|---|---|
+| Privacy | The outside service sees our server, not each user's IP; positions are rounded to about 11 m, the search area to about 10 km |
+| Speed and lower load | Results are cached for a day in the key-value store (same cache-aside pattern as the ride search) |
+| Good manners | At most one search a second (`_wait_for_search_slot` reserves the next slot before sleeping); a per-user rate limit; login required, so strangers can't use us as a free relay |
+| Freedom to switch | The provider is a setting (`GEOCODER_URL`, `ROUTING_URL`), not code shipped to every phone |
+| Safety against bad data | Every row from outside is validated; a malformed one is dropped instead of breaking the answer |
+
+Three more lessons from this part:
+
+- **Optional features degrade gracefully.** If the service is down, blocked or switched off,
+  the API answers 503 with a clear message; the app falls back to tapping the map and draws
+  the route as a curve. A nice-to-have must never take the main flow down with it.
+- **Respect usage policies in the design.** The free geocoder forbids search-as-you-type, so
+  the app searches on Enter or the button, not per keystroke.
+- **TLS trust.** HTTPS clients verify servers against a list of trusted certificates. Python
+  libraries ship their own list; the API uses the operating system's list instead
+  (`ssl.create_default_context()`), which also knows certificates an organisation installs
+  on its machines. Never "fix" a certificate error by switching verification off.
+
+Tests replace the one function that goes online (`_get_json`) with a fake, so they are fast,
+repeatable and never load someone else's server.
+
+**Interview:** *"How do you integrate a third-party API?"*
+Put it behind your own service with a timeout, validation of what comes back, a cache, a
+rate limit, and a fallback for when it fails. Keep keys and user data on the server, make
+the provider configurable, and fake it in tests.
+
 ---
 
 ## Part 7 — Shipping it
@@ -409,6 +477,17 @@ atomically in the same transaction.
   the API, and nginx.
 
 See `docs/DEPLOYMENT.md` for going live and the production checklist.
+
+### 7.1b Fail fast on unsafe settings, and back up
+
+- `backend/app/core/config.py`: with `ENVIRONMENT=production` the settings object validates
+  itself, and the app **refuses to start** with a weak JWT secret, `OTP_DEV_ECHO=true` and
+  similar. A loud failure at startup beats a quiet security hole found by a stranger.
+  Softer issues (no Redis, a free map server) are logged as warnings.
+- `backend/scripts/backup_db.py`: `mysqldump --single-transaction` (one consistent snapshot,
+  nobody locked out), compressed, then read back to check it is complete. The password goes
+  in a private options file, not on the command line where other users could see it.
+  A backup only counts once a restore has been tried.
 
 ### 7.2 Continuous integration
 
@@ -464,6 +543,8 @@ tool output.
 | `POINT SRID 0 GENERATED ...` syntax error | Migration failed halfway | Test DDL variants on a temporary table first |
 | A chained "down then up" command ran after a failed migration and reset local data | My own mistake while building | Run migration steps one at a time and stop at the first error |
 | Map didn't zoom to the GPS position | Browser test: a pin landed 12 km away | Leaflet's `fitBounds` ignores a request made during a zoom animation; `flyToBounds` cancels the old move instead. Async results can arrive mid-animation |
+| Known places up to 1.3 km off | Looking each one up in OpenStreetMap | Data typed from memory is a guess; check it against a source |
+| Search results hidden on a phone | Screenshot: the matches sat under the pinned button | A passing test isn't a usable screen (the test tool scrolls for you); look at it |
 
 ## Known gaps (honest list)
 
@@ -471,7 +552,9 @@ tool output.
   wasn't diagnosed. Verify with `docker compose` (see `docs/DEPLOYMENT.md`).
 - CI runs on every push and passes (tests, frontend build, both Docker images build). The
   full Docker stack running together is still unverified.
-- Known places' coordinates are approximate (free pins and GPS are exact).
-- No address search yet (typing "Mavoor Road"): it needs a geocoding service such as
-  OpenStreetMap's Nominatim. Users set places by GPS, map taps or the known-places list.
-- No admin screen for reports; no Web Push while the app is closed; SMS uses the dev console.
+- Address search and road routes use free community servers by default. They are fine for
+  development; real traffic needs your own or a paid service (see `docs/DEPLOYMENT.md`).
+- Driving times come without traffic, so the app says "about".
+- No Web Push while the app is closed; SMS uses the dev console.
+- A backup restore has not been tried yet (the backup itself was run and verified).
+- Lifting a suspension is not recorded anywhere (suspending is, on the report).

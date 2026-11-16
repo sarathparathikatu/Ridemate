@@ -23,11 +23,20 @@ class User(Base):
     # (rating_sum = rating_sum + n) in the same transaction as each new rating.
     rating_sum: Mapped[int] = mapped_column(default=0, server_default=text("0"))
     rating_count: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    # Admins review reports. Granted from the command line (python -m app.cli make-admin),
+    # never through the API, so no bug in an endpoint can hand out admin rights.
+    is_admin: Mapped[bool] = mapped_column(default=False, server_default=text("0"))
+    # Set by an admin after reviewing reports. A suspended account can't log in or act.
+    suspended_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     @property
     def phone_verified(self) -> bool:
         return self.phone_verified_at is not None
+
+    @property
+    def is_suspended(self) -> bool:
+        return self.suspended_at is not None
 
     @property
     def rating_avg(self) -> float | None:

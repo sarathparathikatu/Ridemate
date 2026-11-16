@@ -3,11 +3,12 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import { VehicleArt } from "../components/Art.jsx";
 import Icon from "../components/Icon.jsx";
-import { PlaceChips, RouteFields, useRoutePicker } from "../components/LocationPicker.jsx";
+import { PlaceChips, PlaceSearch, RouteFields, useRoutePicker } from "../components/LocationPicker.jsx";
 import MapShell from "../components/MapShell.jsx";
 import RideMap from "../components/RideMap.jsx";
 import { MAX_SEATS, VEHICLE_LABEL, fromLocalInput, toLocalInput } from "../format.js";
 import { usePlaces } from "../usePlaces.js";
+import { describeRoute, useRoadRoute } from "../useRoadRoute.js";
 
 const asPoint = ({ lat, lng, label }) => ({ lat, lng, label: label.trim() || "Pinned spot" });
 const FLEX_OPTIONS = [0, 10, 15, 30];
@@ -28,6 +29,7 @@ export default function OfferRide() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const picker = useRoutePicker({ places, from, to, onFrom: setFrom, onTo: setTo });
+  const road = useRoadRoute(from, to);
 
   const maxSeats = MAX_SEATS[vehicle];
   // If every seat fills: the host plus `seats` riders share the fare.
@@ -67,7 +69,17 @@ export default function OfferRide() {
 
   return (
     <MapShell
-      map={<RideMap fill suggestions={places} from={from} to={to} onTap={picker.tap} onPickPlace={picker.pickPlace} />}
+      map={
+        <RideMap
+          fill
+          suggestions={places}
+          from={from}
+          to={to}
+          road={road?.points}
+          onTap={picker.tap}
+          onPickPlace={picker.pickPlace}
+        />
+      }
     >
       <div>
         <p className="eyebrow">You book. They share.</p>
@@ -75,6 +87,13 @@ export default function OfferRide() {
       </div>
       <form className="form" onSubmit={submit}>
         <RouteFields picker={picker} from={from} to={to} onFrom={setFrom} onTo={setTo} editableLabels />
+        {road && (
+          <p className="route-facts">
+            <Icon name="rides" size={16} />
+            {describeRoute(road)}
+          </p>
+        )}
+        <PlaceSearch picker={picker} near={from ?? to} />
         <PlaceChips places={places} picker={picker} />
 
         <div className="field">

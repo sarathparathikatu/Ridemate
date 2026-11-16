@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import logging
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -13,12 +14,19 @@ from app.core.config import get_settings
 from app.core.redis import get_redis
 from app.db.session import engine, get_db
 from app.realtime.broker import relay_forever
-from app.routers import auth, places, requests, share, trips, users, ws
+from app.routers import admin, auth, geo, places, requests, share, trips, users, ws
 from app.services.errors import DomainError
+
+log = logging.getLogger("uvicorn.error")  # uvicorn's own logger, so these lines show in its output
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings = get_settings()
+    if settings.environment == "production":
+        # Unsafe settings already stopped the app (see Settings); these only deserve a look.
+        for warning in settings.production_warnings():
+            log.warning("settings: %s", warning)
     relay = asyncio.create_task(relay_forever())  # Redis events -> this process's sockets
     yield
     relay.cancel()
@@ -54,6 +62,8 @@ app.include_router(places.router)
 app.include_router(trips.router)
 app.include_router(requests.router)
 app.include_router(share.router)
+app.include_router(geo.router)
+app.include_router(admin.router)
 app.include_router(ws.router)
 
 

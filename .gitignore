@@ -2,6 +2,9 @@
 .env
 .env.local
 
+# Database backups hold real user data: never commit them.
+backups/
+
 # Python
 .venv/
 __pycache__/

@@ -63,10 +63,15 @@ Core flow:
 | E: Docker, CI, deployment guide | ✅ written; runs on first push / with Docker | "Phase E" |
 | F: MCP server for Claude Desktop (Layer 3) | ✅ built, tested over stdio | "Phase F" |
 | Option 2: any location in any city (GPS, map pins, SPATIAL index) | ✅ built, browser-tested in Kozhikode | "Any location" |
+| Redesign: map-first ride app UI (bottom sheet, ride options, dark mode) | ✅ built, browser-tested on phone and laptop sizes | "Redesign" |
+| Admin screen: review reports, suspend accounts, audit trail | ✅ built, tested (API + browser) | "Admin screen" |
+| Address search and road routes (OpenStreetMap services behind the API) | ✅ built, tested (fakes in tests, real services in the browser) | "Admin screen" |
+| Corrected place coordinates, production settings checks, backup script | ✅ built; restore not yet tried | "Admin screen" |
 
-Still to do: address search (geocoding), verify the Docker / same-origin `/api` setup on a machine with Docker, deploy,
-fix the approximate place coordinates, add a real SMS provider, an admin screen for reports,
-and Web Push for notifications while the app is closed. Study material: docs/LEARNING-GUIDE.md.
+Still to do (all need a machine with Docker, a cloud account, or a paid service): verify the
+Docker / same-origin `/api` setup, deploy with HTTPS, add a real SMS provider, try a backup
+restore, and Web Push for notifications while the app is closed.
+Study material: docs/SIMPLE-GUIDE.md first, then docs/LEARNING-GUIDE.md.
 
 The original Layer 2 and Layer 3 notes below are kept for reference.
 

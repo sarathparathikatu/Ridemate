@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import Icon from "../components/Icon.jsx";
@@ -75,6 +76,20 @@ export default function Profile() {
           <span>Blocked</span>
         </div>
       </div>
+
+      {user.is_admin && (
+        <Link className="card admin-link" to="/admin">
+          <span className="prompt-icon">
+            <Icon name="shield" size={20} />
+          </span>
+          <span className="prompt-text">
+            <strong>You're an admin</strong>
+            <br />
+            Review reports and suspended accounts
+          </span>
+          <Icon name="chevron" />
+        </Link>
+      )}
 
       <section className="card form">
         <h2 className="card-title">

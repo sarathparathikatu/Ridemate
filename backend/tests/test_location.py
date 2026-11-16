@@ -20,7 +20,7 @@ async def test_on_the_way_matching(client):
     same = [t for t in await search(client, rider, places, KULATHOOR) if t["id"] == trip["id"]]
     assert same and same[0]["match"] == "same_destination" and same[0]["detour_km"] is None
 
-    # Technopark Phase 1 lies between the station and Kulathoor: a ride passes it.
+    # Technopark Phase 1 is a short detour (under 1 km extra) on the way to Kulathoor.
     on_way = [t for t in await search(client, rider, places, "Technopark Phase 1") if t["id"] == trip["id"]]
     assert on_way and on_way[0]["match"] == "on_the_way"
     assert 0 <= on_way[0]["detour_km"] <= 1.5

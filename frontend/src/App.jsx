@@ -3,6 +3,7 @@ import { useAuth } from "./auth.jsx";
 import Icon, { Logo } from "./components/Icon.jsx";
 import { Avatar } from "./components/ui.jsx";
 import { useLive } from "./live.jsx";
+import Admin from "./pages/Admin.jsx";
 import FindRide from "./pages/FindRide.jsx";
 import Login from "./pages/Login.jsx";
 import MyRides from "./pages/MyRides.jsx";
@@ -13,10 +14,12 @@ import SharedRide from "./pages/SharedRide.jsx";
 
 // Client-side guard for UX only. The real protection is the API's get_current_user:
 // anyone can bypass React code, nobody can bypass the server.
-function RequireAuth({ children }) {
+function RequireAuth({ children, admin = false }) {
   const { user, loading } = useAuth();
   if (loading) return <p className="muted center loading-line">Loading…</p>;
-  return user ? children : <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (admin && !user.is_admin) return <Navigate to="/" replace />;
+  return children;
 }
 
 const NAV = [
@@ -25,6 +28,7 @@ const NAV = [
   { to: "/rides", label: "Activity", icon: "rides" },
   { to: "/profile", label: "Account", icon: "user" },
 ];
+const ADMIN_NAV = { to: "/admin", label: "Admin", icon: "shield" };
 
 // Screens where the map fills the page and the content floats over it.
 const MAP_ROUTES = ["/", "/offer"];
@@ -32,10 +36,11 @@ const MAP_ROUTES = ["/", "/offer"];
 const AUTH_ROUTES = ["/login", "/register"];
 
 // The same links twice: across the top on a laptop, as a tab bar at the bottom on a phone.
-function NavLinks({ className }) {
+function NavLinks({ className, admin }) {
+  const items = admin ? [...NAV, ADMIN_NAV] : NAV;
   return (
     <nav className={className} aria-label="Main">
-      {NAV.map((item) => (
+      {items.map((item) => (
         <NavLink key={item.to} to={item.to} end={item.end}>
           <Icon name={item.icon} size={22} />
           <span>{item.label}</span>
@@ -62,7 +67,7 @@ export default function App() {
               <Logo size={32} />
               <span>RideMate</span>
             </Link>
-            {user && <NavLinks className="topnav" />}
+            {user && <NavLinks className="topnav" admin={user.is_admin} />}
             {user && (
               <div className="topbar-right">
                 <span
@@ -90,11 +95,12 @@ export default function App() {
           <Route path="/offer" element={<RequireAuth><OfferRide /></RequireAuth>} />
           <Route path="/rides" element={<RequireAuth><MyRides /></RequireAuth>} />
           <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
+          <Route path="/admin" element={<RequireAuth admin><Admin /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 
-      {user && mode !== "auth" && <NavLinks className="tabbar" />}
+      {user && mode !== "auth" && <NavLinks className="tabbar" admin={user.is_admin} />}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { api } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { VehicleArt } from "../components/Art.jsx";
 import Icon from "../components/Icon.jsx";
-import { PlaceChips, RouteFields, useRoutePicker } from "../components/LocationPicker.jsx";
+import { PlaceChips, PlaceSearch, RouteFields, useRoutePicker } from "../components/LocationPicker.jsx";
 import MapShell from "../components/MapShell.jsx";
 import RideMap from "../components/RideMap.jsx";
 import { TrustBadges } from "../components/Trust.jsx";
@@ -20,6 +20,7 @@ import {
 } from "../format.js";
 import { formatDistance } from "../geo.js";
 import { usePlaces } from "../usePlaces.js";
+import { describeRoute, useRoadRoute } from "../useRoadRoute.js";
 
 const TIME_PRESETS = [
   { id: "now", label: "Now", minutes: 0 },
@@ -162,6 +163,7 @@ export default function FindRide() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const picker = useRoutePicker({ places, from, to, onFrom: setFrom, onTo: setTo });
+  const road = useRoadRoute(from, to);
 
   function choosePreset(id) {
     setPreset(id);
@@ -240,6 +242,7 @@ export default function FindRide() {
       suggestions={planning ? places : []}
       from={from}
       to={to}
+      road={road?.points}
       rides={trips ?? []}
       selectedRideId={selectedId}
       onTap={planning ? picker.tap : undefined}
@@ -259,6 +262,13 @@ export default function FindRide() {
         </div>
         <form className="form" onSubmit={search}>
           <RouteFields picker={picker} from={from} to={to} onFrom={setFrom} onTo={setTo} />
+          {road && (
+            <p className="route-facts">
+              <Icon name="rides" size={16} />
+              {describeRoute(road)}
+            </p>
+          )}
+          <PlaceSearch picker={picker} near={from ?? to} />
           <PlaceChips places={places} picker={picker} />
           <div className="field">
             <span className="field-label">
@@ -318,7 +328,10 @@ export default function FindRide() {
           <strong>
             {from.label} <Icon name="arrow" size={14} /> {to.label}
           </strong>
-          <span className="muted small-text">{timeLabel}</span>
+          <span className="muted small-text">
+            {timeLabel}
+            {road && ` · ${describeRoute(road)}`}
+          </span>
         </div>
       </div>
 

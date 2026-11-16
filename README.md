@@ -12,9 +12,12 @@ the app has since moved to a map-first layout.
 
 ## Features
 
-- **Works in any city**: rides start and end anywhere (phone GPS, a pin on the map, or a
-  known place). "Rides starting near me" uses a MySQL **SPATIAL index**, plus
-  **"on the way"** matches computed with `ST_Distance_Sphere`; Leaflet + OpenStreetMap map.
+- **Works in any city**: rides start and end anywhere (phone GPS, a pin on the map, an
+  address search, or a known place). "Rides starting near me" uses a MySQL **SPATIAL
+  index**, plus **"on the way"** matches computed with `ST_Distance_Sphere`.
+- **Real maps**: address search and road routes with distance and driving time, fetched by
+  the API from OpenStreetMap services (cached, rate limited, and optional: the app still
+  works without them).
 - **Join requests**: request, accept, decline, cancel; row locking guarantees the last seat
   can't be given twice.
 - **Live updates**: WebSockets (Redis pub/sub across server processes), toasts and
@@ -23,6 +26,8 @@ the app has since moved to a map-first layout.
   reuse detection.
 - **Trust & safety**: phone verification by OTP, ratings after a completed ride, report and
   block, share-with-family links, contacts hidden until a request is accepted.
+- **Moderation**: an admin screen to review reports and suspend accounts, with a record of
+  who decided what and why. Admin rights are granted from the command line only.
 - **Scale**: keyset pagination, spatial and composite indexes (EXPLAIN demo: 660 ms -> 4.6 ms),
   Redis cache with versioned invalidation, per-user and per-IP rate limits.
 - **Map-first design**: the map fills the screen and everything sits in a sheet over it
@@ -34,7 +39,7 @@ the app has since moved to a map-first layout.
 | Layer | Tech |
 |---|---|
 | Frontend | React 19 + Vite, React Router, Leaflet, PWA |
-| Backend | FastAPI (async), Pydantic, PyJWT, bcrypt, WebSockets |
+| Backend | FastAPI (async), Pydantic, PyJWT, bcrypt, WebSockets, httpx |
 | Data | MySQL 8 (InnoDB, utf8mb4) via SQLAlchemy 2 async + Alembic; Redis (optional locally) |
 | AI | MCP Python SDK 2.x (stdio server) |
 | Tooling | uv, npm, pytest + httpx, Docker, GitHub Actions |
@@ -69,7 +74,17 @@ npm run dev
 App: http://localhost:5173
 
 Phone verification in development: no SMS is sent; the code is printed in the backend
-terminal and shown on the Profile page (`OTP_DEV_ECHO=true`).
+terminal and shown on the Account page (`OTP_DEV_ECHO=true`).
+
+**Become an admin** (to review reports), from the backend folder, then log in again:
+```
+uv run python -m app.cli make-admin you@example.com
+```
+
+**Back up the database** (the file goes to `backend/backups/`, which git ignores):
+```
+uv run python -m scripts.backup_db
+```
 
 ## Run the whole stack with Docker
 
@@ -85,10 +100,12 @@ App: http://localhost:8080. Details and going live: [docs/DEPLOYMENT.md](docs/DE
 cd backend
 uv run pytest -v
 ```
-26 integration tests against the real MySQL, including concurrent accepts for the last
-seat, refresh-token theft detection, live WebSocket events (in-process and via Redis), rate
-limits, "on the way" matching, OTP and blocking. CI runs them on every push with real MySQL
-and Redis, plus a migration drift check and a full rollback.
+42 tests, most of them against the real MySQL: concurrent accepts for the last seat,
+refresh-token theft detection, live WebSocket events (in-process and via Redis), rate
+limits, "on the way" matching, OTP, blocking, admin reviews and suspension, and the
+production settings checks. The outside map services are replaced by fakes, so tests never
+go online. CI runs everything on every push with real MySQL and Redis, plus a migration
+drift check and a full rollback.
 
 Index demo: `uv run python -m scripts.explain_search` (backend folder).
 
@@ -101,20 +118,23 @@ backend/
     db/            declarative Base, async engine + session
     models/        User, Place, Trip, JoinRequest, RefreshToken, Rating, Report, Block, TripShare
     schemas/       Pydantic request/response models (public vs private views, pagination)
-    services/      business rules: trips, requests, tokens, phone, ratings, safety, sharing
+    services/      business rules: trips, requests, tokens, phone, ratings, safety, sharing,
+                   admin (moderation), geo (address search and road routes)
     routers/       thin FastAPI endpoints (+ /ws WebSocket)
     realtime/      WebSocket connections and the event broker
-    dependencies/  current user, verified user, DB session, rate limits
+    dependencies/  current user, verified user, admin user, DB session, rate limits
+    cli.py         admin tasks from the command line (make-admin, revoke-admin, list-admins)
   migrations/      Alembic versions (schema + seed data)
   tests/           integration tests
-  scripts/         learning demos (ORM, JWT, EXPLAIN)
+  scripts/         database backup, and learning demos (ORM, JWT, EXPLAIN)
 frontend/
   src/api.js       every HTTP call (tokens, silent refresh, pagination)
   src/live.jsx     WebSocket connection, toasts, notifications
-  src/pages/       Find a ride, Offer a ride, My rides, Profile, Share, Login, Register
+  src/pages/       Ride (find), Offer, Activity, Account, Admin, Share, Login, Register
+  src/components/  map shell, map, route picker and address search, icons, artwork
   public/          PWA manifest, service worker, icons
 mcp-server/        MCP server for Claude Desktop (see its README)
-docs/              LEARNING-GUIDE.md, DEPLOYMENT.md, concept screens
+docs/              SIMPLE-GUIDE.md (start here), LEARNING-GUIDE.md, DEPLOYMENT.md
 ```
 
 ## Design notes
@@ -125,5 +145,8 @@ docs/              LEARNING-GUIDE.md, DEPLOYMENT.md, concept screens
 - **No ID documents, no payments**: name, email and an optional verified phone; the app
   shows the fare split and riders pay the driver directly.
 - **UTC in the database**: the API accepts and returns timezone-aware timestamps.
+- **Outside services stay behind the API**: the browser never calls a map service itself, so
+  those services see the server, not the users.
 
-Everything is explained concept by concept in [docs/LEARNING-GUIDE.md](docs/LEARNING-GUIDE.md).
+Every concept is explained in plain words in [docs/SIMPLE-GUIDE.md](docs/SIMPLE-GUIDE.md),
+and in depth, with interview questions, in [docs/LEARNING-GUIDE.md](docs/LEARNING-GUIDE.md).

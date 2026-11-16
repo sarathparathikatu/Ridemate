@@ -315,7 +315,7 @@ export default function MyRides() {
       {head}
       <NotificationPrompt />
 
-      <div className="tabs" role="tablist" aria-label="Ride lists">
+      <div className="tabs phone-only" role="tablist" aria-label="Ride lists">
         <button role="tab" aria-selected={tab === "hosted"} className={tab === "hosted" ? "on" : ""} onClick={() => setTab("hosted")}>
           Hosting {activeHosted > 0 && <span className="count-badge">{activeHosted}</span>}
         </button>

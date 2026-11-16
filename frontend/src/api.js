@@ -144,4 +144,14 @@ export const api = {
   unblock: (userId) => request(`/users/${userId}/block`, { method: "DELETE" }),
   blocked: () => request("/users/me/blocks"),
   report: (userId, report) => post(`/users/${userId}/report`, report),
+  // Maps. The app asks our API, and the API asks the map services (see geo_service.py).
+  searchPlaces: (q, near) => request(`/geo/search${query({ q, near_lat: near?.lat, near_lng: near?.lng })}`),
+  roadRoute: (from, to) =>
+    request(`/geo/route${query({ from_lat: from.lat, from_lng: from.lng, to_lat: to.lat, to_lng: to.lng })}`),
+  // Admin. The API refuses all of these unless the account is an admin.
+  adminSummary: () => request("/admin/summary"),
+  adminReports: (status, cursor) => request(`/admin/reports${query({ status, cursor })}`),
+  resolveReport: (id, action, note) => post(`/admin/reports/${id}/resolve`, { action, note: note || null }),
+  suspendedUsers: () => request("/admin/suspended"),
+  unsuspend: (userId) => post(`/admin/users/${userId}/unsuspend`),
 };

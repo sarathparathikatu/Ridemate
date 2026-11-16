@@ -33,11 +33,13 @@ services:
     build: ./backend
     command: ["alembic", "upgrade", "head"]
     environment: &backend-env
+      ENVIRONMENT: ${ENVIRONMENT:-development}
       DATABASE_URL: mysql+aiomysql://ridemate:${MYSQL_PASSWORD}@mysql:3306/ridemate?charset=utf8mb4
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
       REDIS_URL: redis://redis:6379/0
       OTP_DEV_ECHO: ${OTP_DEV_ECHO:-true}
       REQUIRE_VERIFIED_PHONE: ${REQUIRE_VERIFIED_PHONE:-false}
+      OUTBOUND_USER_AGENT: ${OUTBOUND_USER_AGENT:-rideshare-web-app/0.1}
       CORS_ORIGINS: '["http://localhost:8080"]'
     depends_on:
       mysql:

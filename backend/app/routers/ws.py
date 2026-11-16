@@ -32,7 +32,8 @@ async def events_socket(ws: WebSocket) -> None:
         return
 
     async with SessionLocal() as db:
-        if await db.get(User, user_id) is None:
+        user = await db.get(User, user_id)
+        if user is None or user.is_suspended:
             await ws.close(code=CLOSE_UNAUTHORIZED)
             return
 

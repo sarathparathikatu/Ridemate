@@ -30,9 +30,12 @@ async def get_current_user(
     except (jwt.InvalidTokenError, ValueError):
         raise credentials_error from None
 
-    # Token is genuine, but the account may have been deleted since it was issued.
+    # Token is genuine, but the account may have been deleted or suspended since it was
+    # issued. Checking the database on every request is what makes a suspension take effect
+    # at once, instead of when the token expires. The app reacts to this 401 by trying to
+    # refresh, which fails too (suspension revokes the refresh tokens), and logs out.
     user = await db.get(User, user_id)
-    if user is None:
+    if user is None or user.is_suspended:
         raise credentials_error
     return user
 
@@ -50,3 +53,17 @@ async def get_verified_user(current_user: CurrentUser) -> User:
 
 # For actions that put you in a stranger's vehicle: posting and joining rides.
 VerifiedUser = Annotated[User, Depends(get_verified_user)]
+
+
+async def get_admin_user(current_user: CurrentUser) -> User:
+    """Authentication answered "who are you?"; this is authorization: "are you allowed?".
+
+    The flag is read from the database on each request, not stored in the token, so taking
+    away someone's admin rights works immediately.
+    """
+    if not current_user.is_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admins only")
+    return current_user
+
+
+AdminUser = Annotated[User, Depends(get_admin_user)]

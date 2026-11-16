@@ -43,6 +43,7 @@ class UserOut(BaseModel):
     phone_verified: bool
     rating_avg: float | None
     rating_count: int
+    is_admin: bool  # lets the app show the Admin screen; the API checks it again itself
     created_at: UTCOutput
 
 

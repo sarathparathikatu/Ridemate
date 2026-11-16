@@ -72,8 +72,9 @@ function TapToPin({ onTap }) {
   return null;
 }
 
-// A gentle arc between the two ends. We don't know the real road route, so a curve says
-// "from here to there" without pretending to be turn-by-turn directions.
+// A gentle arc between the two ends: the stand-in while the real road route loads, and
+// the fallback when the routing service can't be reached. A curve says "from here to
+// there" without pretending to be turn-by-turn directions.
 function arc(a, b, steps = 24) {
   const bend = 0.16;
   const cLat = (a.lat + b.lat) / 2 + (b.lng - a.lng) * bend;
@@ -85,13 +86,15 @@ function arc(a, b, steps = 24) {
   });
 }
 
-// suggestions: known places (grey dots). from/to: {lat, lng, label}. rides: search results
-// shown as lime pins. Pass onTap to let people drop pins, onPickPlace to let them tap a
-// grey dot, onSelectRide to let them tap a ride. fill: the map is the page background.
+// suggestions: known places (grey dots). from/to: {lat, lng, label}. road: the road route
+// as [lat, lng] points, when we have one. rides: search results shown as lime pins. Pass
+// onTap to let people drop pins, onPickPlace to let them tap a grey dot, onSelectRide to
+// let them tap a ride. fill: the map is the page background.
 export default function RideMap({
   suggestions = [],
   from,
   to,
+  road,
   rides = [],
   selectedRideId,
   onTap,
@@ -99,7 +102,8 @@ export default function RideMap({
   onSelectRide,
   fill = false,
 }) {
-  const route = from && to ? arc(from, to) : null;
+  let route = null;
+  if (from && to) route = road?.length > 1 ? road : arc(from, to);
   return (
     <div className={fill ? "map map-fill" : "map"}>
       <MapContainer center={KERALA} zoom={8} scrollWheelZoom={fill} zoomControl={false} attributionControl={false}>

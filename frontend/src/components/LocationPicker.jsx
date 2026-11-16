@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { api } from "../api.js";
 import { describePoint } from "../geo.js";
 import Icon from "./Icon.jsx";
 
@@ -134,10 +135,94 @@ export function RouteFields({ picker, from, to, onFrom, onTo, editableLabels = f
       <p className="hint">
         <Icon name="pin" size={16} />
         <span>
-          Tap the map to set <strong>{active === "from" ? "your pickup" : "your destination"}</strong>, or pick a place
-          below.
+          Tap the map to set <strong>{active === "from" ? "your pickup" : "your destination"}</strong>, or search for
+          it below.
         </span>
       </p>
+    </div>
+  );
+}
+
+// Type a place or an address ("Mavoor Road") and pick from the matches.
+// It searches when asked (Enter or the button), not on every keystroke: the free
+// OpenStreetMap search service doesn't allow search-as-you-type.
+export function PlaceSearch({ picker, near }) {
+  const [text, setText] = useState("");
+  const [state, setState] = useState({ busy: false, results: null, error: "" });
+  const box = useRef(null);
+  const what = picker.active === "from" ? "pickup" : "destination";
+
+  async function search() {
+    const q = text.trim();
+    if (q.length < 3) {
+      setState({ busy: false, results: null, error: "Type at least 3 letters." });
+      return;
+    }
+    setState({ busy: true, results: null, error: "" });
+    // On a phone the matches would appear under the pinned button: bring the box to the top.
+    box.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    try {
+      setState({ busy: false, results: await api.searchPlaces(q, near), error: "" });
+    } catch (err) {
+      setState({ busy: false, results: null, error: `${err.message} You can still tap the map.` });
+    }
+  }
+
+  function choose(place) {
+    picker.pickPlace({ lat: place.lat, lng: place.lng, name: place.label });
+    setText("");
+    setState({ busy: false, results: null, error: "" });
+    // Back to the top, where the map shows the new pin. The page scrolls on a phone, the
+    // panel scrolls on a laptop; asking both is harmless.
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    box.current?.closest(".sheet")?.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  return (
+    <div className="place-search" ref={box}>
+      <div className="place-search-row">
+        <input
+          type="search"
+          value={text}
+          maxLength={100}
+          enterKeyHint="search"
+          placeholder={`Search a ${what}: place or address`}
+          aria-label={`Search for a ${what} by place or address`}
+          onChange={(e) => setText(e.target.value)}
+          // This box sits inside the ride form: Enter must search, not submit that form.
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              search();
+            }
+          }}
+        />
+        <button type="button" className="round-button" onClick={search} disabled={state.busy} aria-label="Search places">
+          <Icon name="search" />
+        </button>
+      </div>
+      {state.busy && <p className="muted small-text">Searching…</p>}
+      {state.error && <p className="error">{state.error}</p>}
+      {state.results?.length === 0 && (
+        <p className="muted small-text">No places found. Try a nearby landmark, or tap the map.</p>
+      )}
+      {state.results?.length > 0 && (
+        <ul className="search-results" aria-label={`Places matching your search: choose your ${what}`}>
+          {state.results.map((place) => (
+            <li key={`${place.lat},${place.lng}`}>
+              <button type="button" className="search-result" onClick={() => choose(place)}>
+                <span className="place-chip-icon">
+                  <Icon name="pin" size={16} />
+                </span>
+                <span className="search-result-text">
+                  <strong>{place.label}</strong>
+                  <span>{place.detail}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
