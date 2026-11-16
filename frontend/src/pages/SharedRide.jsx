@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api.js";
+import { VehicleArt } from "../components/Art.jsx";
+import Icon from "../components/Icon.jsx";
 import RideMap from "../components/RideMap.jsx";
-import { VEHICLE_LABEL, formatTime } from "../format.js";
+import { Notice, RouteLine, SkeletonCards, StatusPill } from "../components/ui.jsx";
+import { VEHICLE_LABEL, formatClock, formatDay } from "../format.js";
 
 // Public page (no login): what a family member sees when you share a ride with them.
 export default function SharedRide() {
@@ -14,24 +17,59 @@ export default function SharedRide() {
     api.viewShare(token).then(setRide).catch((err) => setError(err.message));
   }, [token]);
 
-  if (error) return <p className="card error">{error}</p>;
-  if (!ride) return <p className="muted center">Loading…</p>;
+  if (error) {
+    return (
+      <div className="page narrow">
+        <Notice kind="error">{error}</Notice>
+      </div>
+    );
+  }
+  if (!ride) {
+    return (
+      <div className="page narrow">
+        <SkeletonCards count={1} />
+      </div>
+    );
+  }
 
   return (
-    <article className="card trip">
-      <p className="muted">{ride.shared_by} shared this ride with you</p>
-      <div className="trip-head">
-        <strong>{formatTime(ride.depart_at)}</strong>
-        <span className={`pill ${ride.status}`}>{ride.status}</span>
-      </div>
-      <p className="route">
-        {ride.start.label} → {ride.end.label}
-      </p>
-      <p className="muted">
-        Host: {ride.host_name} · {VEHICLE_LABEL[ride.vehicle]} · {ride.riders} people in this ride
-      </p>
-      <RideMap from={ride.start} to={ride.end} />
-      <p className="muted">Only the route and time are shown here. Phone numbers stay private.</p>
-    </article>
+    <div className="page narrow">
+      <header className="page-head">
+        <div>
+          <p className="eyebrow">Shared with you</p>
+          <h1>{ride.shared_by}'s ride</h1>
+        </div>
+        <StatusPill status={ride.status} />
+      </header>
+      <article className="trip-card">
+        <RideMap from={ride.start} to={ride.end} />
+        <div className="trip-body">
+          <div className="trip-when">
+            <div className="ride-when">
+              <span className="ride-time">{formatClock(ride.depart_at)}</span>
+              <span className="ride-day">
+                {formatDay(ride.depart_at)} · {VEHICLE_LABEL[ride.vehicle]}
+              </span>
+            </div>
+            <VehicleArt vehicle={ride.vehicle} width={64} />
+          </div>
+          <RouteLine from={ride.start.label} to={ride.end.label} />
+          <div className="meta">
+            <span>
+              <Icon name="user" size={16} />
+              Host: {ride.host_name}
+            </span>
+            <span>
+              <Icon name="users" size={16} />
+              {ride.riders} in this ride
+            </span>
+          </div>
+          <p className="hint">
+            <Icon name="lock" size={16} />
+            <span>Only the route and time are shown here. Phone numbers stay private.</span>
+          </p>
+        </div>
+      </article>
+    </div>
   );
 }

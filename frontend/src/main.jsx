@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App.jsx";
 import { AuthProvider } from "./auth.jsx";
 import { LiveProvider } from "./live.jsx";
+import "@fontsource-variable/plus-jakarta-sans"; // the app's typeface, bundled so it works offline
 import "./styles.css";
 
 // Production only: in development the service worker would cache files while you edit them.

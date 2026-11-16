@@ -1,29 +1,10 @@
 import { useState } from "react";
 import { describePoint } from "../geo.js";
-import RideMap from "./RideMap.jsx";
+import Icon from "./Icon.jsx";
 
-function Slot({ name, point, active, onActivate, onRename }) {
-  return (
-    <div className={`slot ${active ? "active" : ""}`}>
-      <button type="button" className="slot-button" aria-pressed={active} onClick={onActivate}>
-        <span className="slot-name">{name}</span>
-        <span className="slot-value">{point ? point.label : "Not set yet"}</span>
-      </button>
-      {onRename && point && (
-        <input
-          aria-label={`${name}: name shown to others`}
-          value={point.label}
-          maxLength={120}
-          onChange={(e) => onRename(e.target.value)}
-        />
-      )}
-    </div>
-  );
-}
-
-// Choose a pickup and a destination anywhere: GPS, a tap on the map, a known place
-// (grey dot), or the list. editableLabels lets a host name the spots ("Main exit").
-export default function LocationPicker({ places, from, to, onFrom, onTo, editableLabels = false }) {
+// Choosing a pickup and a destination anywhere: GPS, a tap on the map, or a known place.
+// The logic lives in this hook so the page can wire it to both the form and the map.
+export function useRoutePicker({ places, from, to, onFrom, onTo }) {
   const [active, setActive] = useState(from ? "to" : "from");
   const [gps, setGps] = useState({ busy: false, error: "" });
 
@@ -44,7 +25,12 @@ export default function LocationPicker({ places, from, to, onFrom, onTo, editabl
     put(active, { lat: place.lat, lng: place.lng, label: place.name });
   }
 
-  function useMyLocation() {
+  function swap() {
+    onFrom(to);
+    onTo(from);
+  }
+
+  function locate() {
     if (!("geolocation" in navigator)) {
       setGps({ busy: false, error: "This browser can't share its location. Tap the map instead." });
       return;
@@ -62,58 +48,113 @@ export default function LocationPicker({ places, from, to, onFrom, onTo, editabl
     );
   }
 
-  function choose(slot, placeId) {
-    const place = places.find((p) => String(p.id) === placeId);
-    if (place) put(slot, { lat: place.lat, lng: place.lng, label: place.name });
-  }
+  return { active, setActive, gps, tap, pickPlace, swap, locate };
+}
 
+function Slot({ kind, name, placeholder, point, active, onActivate }) {
+  return (
+    <button type="button" className={`slot ${active ? "active" : ""}`} aria-pressed={active} onClick={onActivate}>
+      <span className={`slot-dot ${kind}`} />
+      <span className="slot-text">
+        <span className="slot-name">{name}</span>
+        <span className={`slot-value ${point ? "" : "empty"}`}>{point ? point.label : placeholder}</span>
+      </span>
+    </button>
+  );
+}
+
+// The "Pickup / Where to?" box. editableLabels lets a host name the spots ("Main exit").
+export function RouteFields({ picker, from, to, onFrom, onTo, editableLabels = false }) {
+  const { active, setActive, gps, swap, locate } = picker;
   return (
     <div className="picker">
-      <div className="slots">
-        <Slot
-          name="From"
-          point={from}
-          active={active === "from"}
-          onActivate={() => setActive("from")}
-          onRename={editableLabels ? (label) => onFrom({ ...from, label }) : null}
-        />
-        <button type="button" className="small" onClick={useMyLocation} disabled={gps.busy}>
-          {gps.busy ? "Finding you…" : "Use my location"}
-        </button>
-        <Slot
-          name="Going to"
-          point={to}
-          active={active === "to"}
-          onActivate={() => setActive("to")}
-          onRename={editableLabels ? (label) => onTo({ ...to, label }) : null}
-        />
+      <div className="route-box">
+        <div className="route-slots">
+          <Slot
+            kind="from"
+            name="Pickup"
+            placeholder="Set your pickup"
+            point={from}
+            active={active === "from"}
+            onActivate={() => setActive("from")}
+          />
+          <span className="route-connector" aria-hidden="true" />
+          <Slot
+            kind="to"
+            name="Where to?"
+            placeholder="Choose a destination"
+            point={to}
+            active={active === "to"}
+            onActivate={() => setActive("to")}
+          />
+        </div>
+        <div className="route-tools">
+          <button
+            type="button"
+            className="round-button"
+            onClick={locate}
+            disabled={gps.busy}
+            aria-label="Use my location"
+            title="Use my location"
+          >
+            <Icon name="locate" className={gps.busy ? "spin" : ""} />
+          </button>
+          <button
+            type="button"
+            className="round-button"
+            onClick={swap}
+            disabled={!from && !to}
+            aria-label="Swap pickup and destination"
+            title="Swap"
+          >
+            <Icon name="swap" />
+          </button>
+        </div>
       </div>
-      <p className="muted hint">
-        Tap the map to set {active === "from" ? "your pickup" : "where you're going"}, or tap a grey dot for a known place.
-      </p>
+
       {gps.error && <p className="error">{gps.error}</p>}
-      <RideMap suggestions={places} from={from} to={to} onTap={tap} onPickPlace={pickPlace} />
-      <details className="list-choice">
-        <summary>Or choose known places from a list</summary>
-        <label>
-          From
-          <select value="" onChange={(e) => choose("from", e.target.value)}>
-            <option value="">Choose…</option>
-            {places.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Going to
-          <select value="" onChange={(e) => choose("to", e.target.value)}>
-            <option value="">Choose…</option>
-            {places.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </label>
-      </details>
+
+      {editableLabels && (from || to) && (
+        <div className="row">
+          {from && (
+            <label>
+              <span className="field-label">Pickup name shown to others</span>
+              <input value={from.label} maxLength={120} onChange={(e) => onFrom({ ...from, label: e.target.value })} />
+            </label>
+          )}
+          {to && (
+            <label>
+              <span className="field-label">Drop name shown to others</span>
+              <input value={to.label} maxLength={120} onChange={(e) => onTo({ ...to, label: e.target.value })} />
+            </label>
+          )}
+        </div>
+      )}
+
+      <p className="hint">
+        <Icon name="pin" size={16} />
+        <span>
+          Tap the map to set <strong>{active === "from" ? "your pickup" : "your destination"}</strong>, or pick a place
+          below.
+        </span>
+      </p>
+    </div>
+  );
+}
+
+// Known places as a row you can swipe through: one tap sets the active field.
+export function PlaceChips({ places, picker }) {
+  if (places.length === 0) return null;
+  return (
+    <div className="place-chips" role="group" aria-label={`Known places: sets ${picker.active === "from" ? "your pickup" : "your destination"}`}>
+      {places.map((place) => (
+        <button key={place.id} type="button" className="place-chip" onClick={() => picker.pickPlace(place)}>
+          <span className="place-chip-icon">
+            <Icon name={place.kind === "station" ? "train" : "pin"} size={16} />
+          </span>
+          {place.name}
+        </button>
+      ))}
     </div>
   );
 }

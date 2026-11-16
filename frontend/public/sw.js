@@ -1,6 +1,6 @@
 // Service worker: makes RideMate open instantly and still load its screens offline.
 // It caches only the app itself, never API data (rides must always be live).
-const CACHE = "ridemate-v1";
+const CACHE = "ridemate-v2"; // bump when the shell files (icons, manifest) change
 const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/icon.svg"];
 
 self.addEventListener("install", (event) => {

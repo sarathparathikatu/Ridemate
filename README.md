@@ -7,7 +7,8 @@ and cabs run out. RideMate lets you post "arriving at the station ~6:15, going t
 2 seats free". Others from the same train find you (even if they're getting off on the way),
 request to join, and split the fare. Contact details are shared only after the host accepts.
 
-See the [concept screens (PDF)](docs/RideMate-concept.pdf) for where the design is heading.
+The [early concept screens (PDF)](docs/RideMate-concept.pdf) show where the design started;
+the app has since moved to a map-first layout.
 
 ## Features
 
@@ -24,7 +25,8 @@ See the [concept screens (PDF)](docs/RideMate-concept.pdf) for where the design 
   block, share-with-family links, contacts hidden until a request is accepted.
 - **Scale**: keyset pagination, spatial and composite indexes (EXPLAIN demo: 660 ms -> 4.6 ms),
   Redis cache with versioned invalidation, per-user and per-IP rate limits.
-- **Installable app**: PWA manifest and service worker, mobile-first UI.
+- **Map-first design**: the map fills the screen and everything sits in a sheet over it
+  (bottom sheet on phones, floating panel on laptops); dark mode; installable as a PWA.
 - **AI**: an MCP server so Claude Desktop can find, post and join rides for you.
 
 ## Stack

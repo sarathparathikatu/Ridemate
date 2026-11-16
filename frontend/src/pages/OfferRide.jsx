@@ -1,11 +1,17 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
-import LocationPicker from "../components/LocationPicker.jsx";
-import { usePlaces } from "../usePlaces.js";
+import { VehicleArt } from "../components/Art.jsx";
+import Icon from "../components/Icon.jsx";
+import { PlaceChips, RouteFields, useRoutePicker } from "../components/LocationPicker.jsx";
+import MapShell from "../components/MapShell.jsx";
+import RideMap from "../components/RideMap.jsx";
 import { MAX_SEATS, VEHICLE_LABEL, fromLocalInput, toLocalInput } from "../format.js";
+import { usePlaces } from "../usePlaces.js";
 
 const asPoint = ({ lat, lng, label }) => ({ lat, lng, label: label.trim() || "Pinned spot" });
+const FLEX_OPTIONS = [0, 10, 15, 30];
+const VEHICLE_HINT = { auto: "Up to 2 riders", cab: "Up to 3 riders", any: "Whichever comes" };
 
 export default function OfferRide() {
   const navigate = useNavigate();
@@ -21,8 +27,11 @@ export default function OfferRide() {
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const picker = useRoutePicker({ places, from, to, onFrom: setFrom, onTo: setTo });
 
   const maxSeats = MAX_SEATS[vehicle];
+  // If every seat fills: the host plus `seats` riders share the fare.
+  const perPerson = fare ? Math.ceil(Number(fare) / (1 + seats)) : null;
 
   function changeVehicle(value) {
     setVehicle(value);
@@ -57,54 +66,138 @@ export default function OfferRide() {
   }
 
   return (
-    <form className="card form" onSubmit={submit}>
-      <h1>Offer a ride</h1>
-      <p className="muted">You book the auto or cab; others from your train join and split the fare.</p>
-      <LocationPicker places={places} from={from} to={to} onFrom={setFrom} onTo={setTo} editableLabels />
-      <label>
-        Leaving at
-        <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} required />
-      </label>
-      <div className="row">
-        <label>
-          Vehicle
-          <select value={vehicle} onChange={(e) => changeVehicle(e.target.value)}>
+    <MapShell
+      map={<RideMap fill suggestions={places} from={from} to={to} onTap={picker.tap} onPickPlace={picker.pickPlace} />}
+    >
+      <div>
+        <p className="eyebrow">You book. They share.</p>
+        <h1 className="sheet-title">Offer a ride</h1>
+      </div>
+      <form className="form" onSubmit={submit}>
+        <RouteFields picker={picker} from={from} to={to} onFrom={setFrom} onTo={setTo} editableLabels />
+        <PlaceChips places={places} picker={picker} />
+
+        <div className="field">
+          <span className="field-label">Vehicle</span>
+          <div className="vehicles" role="radiogroup" aria-label="Vehicle">
             {Object.entries(VEHICLE_LABEL).map(([value, text]) => (
-              <option key={value} value={value}>{text}</option>
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={vehicle === value}
+                className={vehicle === value ? "vehicle on" : "vehicle"}
+                onClick={() => changeVehicle(value)}
+              >
+                <VehicleArt vehicle={value} width={64} />
+                <strong>{text}</strong>
+                <span>{VEHICLE_HINT[value]}</span>
+              </button>
             ))}
-          </select>
-        </label>
+          </div>
+        </div>
+
+        <div className="stepper-row">
+          <div>
+            <strong>Seats for others</strong>
+            <p className="muted small-text">
+              Up to {maxSeats} in {vehicle === "cab" ? "a cab" : "an auto"}
+            </p>
+          </div>
+          <div className="stepper" role="group" aria-label="Seats for others">
+            <button
+              type="button"
+              className="round-button"
+              onClick={() => setSeats((s) => Math.max(1, s - 1))}
+              disabled={seats <= 1}
+              aria-label="One seat fewer"
+            >
+              <Icon name="minus" />
+            </button>
+            <span className="stepper-value" aria-live="polite">
+              {seats}
+            </span>
+            <button
+              type="button"
+              className="round-button"
+              onClick={() => setSeats((s) => Math.min(maxSeats, s + 1))}
+              disabled={seats >= maxSeats}
+              aria-label="One seat more"
+            >
+              <Icon name="plus" />
+            </button>
+          </div>
+        </div>
+
         <label>
-          Seats for others
-          <select value={seats} onChange={(e) => setSeats(Number(e.target.value))}>
-            {Array.from({ length: maxSeats }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>{n}</option>
+          <span className="field-label">Leaving at</span>
+          <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} required />
+        </label>
+        <div className="field">
+          <span className="field-label">I can wait</span>
+          <div className="chips">
+            {FLEX_OPTIONS.map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={flex === m ? "chip on" : "chip"}
+                aria-pressed={flex === m}
+                onClick={() => setFlex(m)}
+              >
+                {m === 0 ? "No waiting" : `±${m} min`}
+              </button>
             ))}
-          </select>
-        </label>
-      </div>
-      <div className="row">
+          </div>
+        </div>
+
         <label>
-          I can wait
-          <select value={flex} onChange={(e) => setFlex(Number(e.target.value))}>
-            {[0, 10, 15, 30].map((m) => (
-              <option key={m} value={m}>±{m} min</option>
-            ))}
-          </select>
+          <span className="field-label">
+            Expected fare <span className="muted-inline">(optional)</span>
+          </span>
+          <span className="input-prefix">
+            <span>₹</span>
+            <input
+              type="number"
+              min="0"
+              max="5000"
+              value={fare}
+              onChange={(e) => setFare(e.target.value)}
+              placeholder="e.g. 150"
+              aria-label="Expected fare in rupees"
+            />
+          </span>
         </label>
+        {perPerson != null && (
+          <div className="split-card">
+            <div>
+              <span className="split-card-label">If all {seats + 1} of you share, each pays about</span>
+              <strong>₹{perPerson}</strong>
+            </div>
+            <span className="split-card-save">Save up to ₹{Number(fare) - perPerson}</span>
+          </div>
+        )}
         <label>
-          Expected fare (₹)
-          <input type="number" min="0" max="5000" value={fare} onChange={(e) => setFare(e.target.value)} placeholder="optional" />
+          <span className="field-label">
+            Note <span className="muted-inline">(optional)</span>
+          </span>
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            maxLength={200}
+            placeholder="e.g. Blue shirt, waiting at the main exit"
+          />
         </label>
-      </div>
-      <label>
-        Note <span className="muted">(optional)</span>
-        <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} placeholder="e.g. Blue shirt, waiting at the main exit" />
-      </label>
-      {(placesError || error) && <p className="error">{placesError || error}</p>}
-      <button className="primary" disabled={busy}>
-        {busy ? "Posting…" : "Post ride"}
-      </button>
-    </form>
+
+        {(placesError || error) && <p className="error">{placesError || error}</p>}
+        <div className="sheet-cta">
+          <button className="cta" disabled={busy}>
+            {busy ? "Posting…" : "Post ride"}
+          </button>
+        </div>
+        <p className="muted small-text center lock-line">
+          <Icon name="lock" size={14} /> Your phone and email are shared only with riders you accept.
+        </p>
+      </form>
+    </MapShell>
   );
 }

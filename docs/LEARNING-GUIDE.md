@@ -336,14 +336,26 @@ more selective than "in this 90-minute window".
 
 ### 5.3 The frontend
 
-- `frontend/src/components/LocationPicker.jsx`: "Use my location" (browser
-  `navigator.geolocation`), tap the map to drop a pin for the active field, tap a grey dot,
-  or pick from a list. Hosts can rename pins ("Main exit"). If location is blocked (a
+The app is **map-first**, like other ride apps: on the Ride and Offer screens the map fills
+the page and the content sits in a sheet over it (a bottom sheet on a phone, a floating
+panel on a laptop).
+
+- `frontend/src/components/MapShell.jsx`: that layout. The map is `position: fixed` behind
+  everything; the sheet is ordinary page content with space above it, so scrolling the page
+  slides the sheet up over the map. No drag-gesture code needed.
+- `frontend/src/components/LocationPicker.jsx`: the `useRoutePicker` hook holds the logic
+  ("Use my location" via `navigator.geolocation`, tap the map to drop a pin for the active
+  field, pick a known place), so the page can connect it to both the form (`RouteFields`,
+  `PlaceChips`) and the map. Hosts can rename pins ("Main exit"). If location is blocked (a
   locked-down laptop, a denied permission) the user gets a clear message and taps instead.
-- `frontend/src/components/RideMap.jsx`: Leaflet + OpenStreetMap tiles; zooms to the route
-  once both ends are set.
+- `frontend/src/components/RideMap.jsx`: Leaflet + OpenStreetMap tiles. It keeps the route
+  and the found rides inside the part of the map the sheet doesn't cover (`visiblePadding`),
+  and draws the route as an arc, because we don't know the real road route.
 - `frontend/src/geo.js`: the same haversine distance in JavaScript, and friendly pin names
   ("Near Kulathoor") when a known place is close.
+- `frontend/src/styles.css`: one design system. Every colour is a CSS variable (token), so
+  dark mode only redefines the tokens. The typeface is bundled with the app
+  (`@fontsource-variable/plus-jakarta-sans`) so it also works offline.
 - Browsers only share location on **HTTPS** (or localhost), another reason deployment needs
   HTTPS.
 
@@ -451,12 +463,14 @@ tool output.
 | Share button did nothing on desktop Edge | Browser test | Always have a fallback for platform APIs |
 | `POINT SRID 0 GENERATED ...` syntax error | Migration failed halfway | Test DDL variants on a temporary table first |
 | A chained "down then up" command ran after a failed migration and reset local data | My own mistake while building | Run migration steps one at a time and stop at the first error |
+| Map didn't zoom to the GPS position | Browser test: a pin landed 12 km away | Leaflet's `fitBounds` ignores a request made during a zoom animation; `flyToBounds` cancels the old move instead. Async results can arrive mid-animation |
 
 ## Known gaps (honest list)
 
 - Same-origin `/api` mode behind nginx: one browser test failed on the corporate laptop and
   wasn't diagnosed. Verify with `docker compose` (see `docs/DEPLOYMENT.md`).
-- Docker images and CI haven't run yet. They run on your first push to GitHub.
+- CI runs on every push and passes (tests, frontend build, both Docker images build). The
+  full Docker stack running together is still unverified.
 - Known places' coordinates are approximate (free pins and GPS are exact).
 - No address search yet (typing "Mavoor Road"): it needs a geocoding service such as
   OpenStreetMap's Nominatim. Users set places by GPS, map taps or the known-places list.

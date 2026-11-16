@@ -1,17 +1,26 @@
 import { useState } from "react";
 import { api } from "../api.js";
+import Icon from "./Icon.jsx";
+import { Avatar, Notice } from "./ui.jsx";
 
 // "✓ Verified · ★ 4.8 (12)": the signals that help you decide whether to share a ride.
 export function TrustBadges({ person }) {
   return (
     <span className="trust">
-      {person.phone_verified && <span className="verified">✓ Verified</span>}
+      {person.phone_verified && (
+        <span className="trust-badge verified">
+          <Icon name="shield" size={14} />
+          Verified
+        </span>
+      )}
       {person.rating_avg != null ? (
-        <span>
-          ★ {person.rating_avg.toFixed(1)} ({person.rating_count})
+        <span className="trust-badge rating">
+          <Icon name="star" size={14} filled />
+          {person.rating_avg.toFixed(1)}
+          <span className="muted-inline">({person.rating_count})</span>
         </span>
       ) : (
-        <span>New member</span>
+        <span className="trust-badge new">New member</span>
       )}
     </span>
   );
@@ -24,7 +33,7 @@ export function RatePerson({ tripId, person }) {
   const [tags, setTags] = useState([]);
   const [state, setState] = useState({ done: false, error: "" });
 
-  if (state.done) return <p className="muted">Thanks for rating {person.display_name}.</p>;
+  if (state.done) return <Notice kind="success">Thanks for rating {person.display_name}.</Notice>;
 
   const toggle = (tag) => setTags((t) => (t.includes(tag) ? t.filter((x) => x !== tag) : [...t, tag]));
 
@@ -39,24 +48,34 @@ export function RatePerson({ tripId, person }) {
 
   return (
     <div className="rate">
-      <strong>How was riding with {person.display_name}?</strong>
+      <div className="person-row">
+        <Avatar name={person.display_name} />
+        <strong>How was riding with {person.display_name}?</strong>
+      </div>
       <div className="stars" role="radiogroup" aria-label={`Rate ${person.display_name}`}>
         {[1, 2, 3, 4, 5].map((n) => (
           <button
             key={n}
+            type="button"
             role="radio"
             aria-checked={stars === n}
             aria-label={`${n} star${n > 1 ? "s" : ""}`}
             className={n <= stars ? "star on" : "star"}
             onClick={() => setStars(n)}
           >
-            ★
+            <Icon name="star" size={30} filled />
           </button>
         ))}
       </div>
       <div className="chips">
         {Object.entries(TAGS).map(([tag, label]) => (
-          <button key={tag} aria-pressed={tags.includes(tag)} className={tags.includes(tag) ? "chip on" : "chip"} onClick={() => toggle(tag)}>
+          <button
+            key={tag}
+            type="button"
+            aria-pressed={tags.includes(tag)}
+            className={tags.includes(tag) ? "chip on" : "chip"}
+            onClick={() => toggle(tag)}
+          >
             {label}
           </button>
         ))}
@@ -107,10 +126,16 @@ export function SafetyActions({ userId, tripId }) {
   return (
     <div className="safety">
       <div className="safety-links">
-        <button className="link small-link" onClick={() => setOpen((o) => !o)}>
+        <span className="safety-label">
+          <Icon name="shield" size={16} />
+          Safety
+        </span>
+        <button type="button" className="small" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+          <Icon name="flag" size={16} />
           Report
         </button>
-        <button className="link small-link" onClick={block}>
+        <button type="button" className="small" onClick={block}>
+          <Icon name="ban" size={16} />
           Block
         </button>
       </div>
@@ -125,13 +150,17 @@ export function SafetyActions({ userId, tripId }) {
             </select>
           </label>
           <label>
-            Details <span className="muted">(optional)</span>
+            <span>
+              Details <span className="muted-inline">(optional)</span>
+            </span>
             <input value={details} onChange={(e) => setDetails(e.target.value)} maxLength={1000} />
           </label>
-          <button className="small" onClick={sendReport}>Send report</button>
+          <button type="button" className="small" onClick={sendReport}>
+            Send report
+          </button>
         </div>
       )}
-      {message && <p className="muted">{message}</p>}
+      {message && <p className="muted small-text">{message}</p>}
     </div>
   );
 }
@@ -171,8 +200,11 @@ export function ShareButton({ tripId }) {
 
   return (
     <>
-      <button className="small" onClick={share}>Share with family</button>
-      {message && <p className="muted">{message}</p>}
+      <button type="button" className="small" onClick={share}>
+        <Icon name="share" size={16} />
+        Share with family
+      </button>
+      {message && <p className="muted small-text share-message">{message}</p>}
     </>
   );
 }

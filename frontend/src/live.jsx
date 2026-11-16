@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { API_URL, getToken, refreshTokens } from "./api.js";
 import { useAuth } from "./auth.jsx";
+import Icon from "./components/Icon.jsx";
 
 // API_URL is either absolute (http://localhost:8000, development) or a same-origin path
 // (/api, behind nginx in production). WebSockets need an absolute ws:// or wss:// URL.
@@ -79,7 +80,10 @@ export function LiveProvider({ children }) {
       <div className="toasts" role="status" aria-live="polite">
         {toasts.map((t) => (
           <button key={t.id} className="toast" onClick={() => dismiss(t.id)}>
-            {t.message}
+            <span className="toast-icon">
+              <Icon name="bell" size={18} />
+            </span>
+            <span>{t.message}</span>
           </button>
         ))}
       </div>
@@ -105,8 +109,11 @@ export function NotificationPrompt() {
   if (permission !== "default") return null;
   return (
     <div className="card prompt">
-      <span>Get an alert when someone requests your ride, even in another tab.</span>
-      <button className="small" onClick={() => Notification.requestPermission().then(setPermission)}>
+      <span className="prompt-icon">
+        <Icon name="bell" size={20} />
+      </span>
+      <span className="prompt-text">Get an alert when someone requests your ride, even in another tab.</span>
+      <button className="small primary" onClick={() => Notification.requestPermission().then(setPermission)}>
         Turn on
       </button>
     </div>

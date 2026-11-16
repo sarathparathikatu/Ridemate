@@ -1,5 +1,7 @@
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./auth.jsx";
+import Icon, { Logo } from "./components/Icon.jsx";
+import { Avatar } from "./components/ui.jsx";
 import { useLive } from "./live.jsx";
 import FindRide from "./pages/FindRide.jsx";
 import Login from "./pages/Login.jsx";
@@ -13,30 +15,73 @@ import SharedRide from "./pages/SharedRide.jsx";
 // anyone can bypass React code, nobody can bypass the server.
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <p className="muted center">Loading…</p>;
+  if (loading) return <p className="muted center loading-line">Loading…</p>;
   return user ? children : <Navigate to="/login" replace />;
 }
 
+const NAV = [
+  { to: "/", label: "Ride", icon: "search", end: true },
+  { to: "/offer", label: "Offer", icon: "plus" },
+  { to: "/rides", label: "Activity", icon: "rides" },
+  { to: "/profile", label: "Account", icon: "user" },
+];
+
+// Screens where the map fills the page and the content floats over it.
+const MAP_ROUTES = ["/", "/offer"];
+// Screens with their own full-page layout and no header.
+const AUTH_ROUTES = ["/login", "/register"];
+
+// The same links twice: across the top on a laptop, as a tab bar at the bottom on a phone.
+function NavLinks({ className }) {
+  return (
+    <nav className={className} aria-label="Main">
+      {NAV.map((item) => (
+        <NavLink key={item.to} to={item.to} end={item.end}>
+          <Icon name={item.icon} size={22} />
+          <span>{item.label}</span>
+        </NavLink>
+      ))}
+    </nav>
+  );
+}
+
 export default function App() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { connected } = useLive();
+  const { pathname } = useLocation();
+  let mode = "page";
+  if (AUTH_ROUTES.includes(pathname)) mode = "auth";
+  else if (user && MAP_ROUTES.includes(pathname)) mode = "map";
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <span className="brand">RideMate</span>
-        {user && (
-          <span className="who">
-            <span className={`live-dot ${connected ? "on" : ""}`} title={connected ? "Live" : "Reconnecting…"} />
-            {user.display_name}
-            <button className="link" onClick={logout}>
-              Log out
-            </button>
-          </span>
-        )}
-      </header>
+    <div className={`app mode-${mode}`}>
+      {mode !== "auth" && (
+        <header className="topbar">
+          <div className="topbar-inner">
+            <Link to="/" className="brand" aria-label="RideMate home">
+              <Logo size={32} />
+              <span>RideMate</span>
+            </Link>
+            {user && <NavLinks className="topnav" />}
+            {user && (
+              <div className="topbar-right">
+                <span
+                  className={`live-chip ${connected ? "on" : ""}`}
+                  title={connected ? "Live updates on" : "Reconnecting…"}
+                >
+                  <span className="live-dot" />
+                  {connected ? "Live" : "Offline"}
+                </span>
+                <Link to="/profile" className="avatar-link" aria-label="Your account">
+                  <Avatar name={user.display_name} size="sm" />
+                </Link>
+              </div>
+            )}
+          </div>
+        </header>
+      )}
 
-      <main className="content">
+      <main className="main">
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -49,14 +94,7 @@ export default function App() {
         </Routes>
       </main>
 
-      {user && (
-        <nav className="tabbar">
-          <NavLink to="/" end>Find a ride</NavLink>
-          <NavLink to="/offer">Offer a ride</NavLink>
-          <NavLink to="/rides">My rides</NavLink>
-          <NavLink to="/profile">Profile</NavLink>
-        </nav>
-      )}
+      {user && mode !== "auth" && <NavLinks className="tabbar" />}
     </div>
   );
 }
