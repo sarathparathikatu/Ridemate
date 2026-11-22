@@ -1,14 +1,4 @@
-# RideMate
 
-Share one auto or cab with people from your train who are going the same way.
-
-Every Monday morning a full train reaches Kazhakoottam station, everyone opens Uber at once,
-and cabs run out. RideMate lets you post "arriving at the station ~6:15, going to Kulathoor,
-2 seats free". Others from the same train find you (even if they're getting off on the way),
-request to join, and split the fare. Contact details are shared only after the host accepts.
-
-The [early concept screens (PDF)](docs/RideMate-concept.pdf) show where the design started;
-the app has since moved to a map-first layout.
 
 ## Features
 
